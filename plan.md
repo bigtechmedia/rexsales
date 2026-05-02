@@ -1,124 +1,157 @@
-# Rex Botanix CRM — plan.md
+# Rex Botanix CRM — plan.md (Updated)
 
 ## 1) Objectives
-- Build a working V1 CRM for Rex Botanix to manage field sales: dealers, visits, enquiries, sales requirements, uploads, requests/approvals, teams, dashboards, and messaging.
-- Support multi-role access (Owner, Admin/Manager, Sales Rep, Dealer) with email/password + Google OAuth.
-- Provide modern-minimal UI with bold, data-rich dashboards (KPIs, filters, charts) and fast field reporting.
-- Ensure end-to-end stability via testing_agent_v3 after each major phase.
+- **Deliver a working V1 CRM (DONE)** for Rex Botanix to manage field sales operations: dealers, field/farm/dealer visits, enquiries, sales requirements, uploads, requests/approvals, teams, dashboards, and messaging.
+- **Support multi-role access (DONE)** across **5 roles** (Owner, Admin, Manager, Sales Rep, Dealer) with **email/password + Emergent Managed Google OAuth**.
+- **Provide modern-minimal UI with bold, data-rich dashboards (DONE)**: KPI cards, filters, charts (recharts), quick actions, and fast reporting flows.
+- **Ensure end-to-end stability (DONE)**: testing_agent_v3 executed with **61/61 backend tests passed** and **all major frontend flows passed**.
+- **Next objective (Phase 3+)**: hardening/polish and optional enhancements (exports, geo/territories, reminders, audit log, granular permissions, dark-mode toggle).
 
 ## 2) Implementation Steps
 
-### Phase 1 — Core POC (Isolation): Google OAuth + RBAC session bootstrap
-> Core risk: OAuth (external) + role routing. Prove login → token → role-based access works before building everything.
-- Websearch best-practice for FastAPI + Google OAuth (redirect URIs, PKCE, token verification) and Emergent Managed Google Auth specifics.
-- Backend (FastAPI): minimal auth module
-  - Email/password: bcrypt + JWT access token.
-  - Google OAuth: callback endpoint to exchange/verify token and issue same JWT.
-  - Seed users: 1 per role (Owner/Admin/Rep/Dealer) + sample teams.
-  - RBAC dependency: `require_roles([...])`.
-- Frontend (React): minimal login page
-  - Email/password form + “Sign in with Google”.
-  - After login: route to `/app` and show role + allowed routes.
-- POC exit criteria: can login with both methods; can hit 1 protected endpoint per role; role-based navigation works.
+### Phase 1 — Core POC (Isolation): Google OAuth + RBAC session bootstrap ✅ **COMPLETE**
+> Goal was to prove login → session → role routing works reliably.
 
-**Phase 1 user stories**
-1. As a user, I can sign in with email/password to access the app.
+**Implemented**
+- Backend auth:
+  - Email/password using **bcrypt**.
+  - Emergent Managed Google OAuth session exchange.
+  - **Session token** stored in MongoDB and usable via **httpOnly cookie** and **Authorization: Bearer** header.
+  - RBAC dependency helper `require_roles([...])`.
+- Frontend auth:
+  - Login page with email/password + “Sign in with Google”.
+  - OAuth callback handler for `#session_id=...` fragment (race-condition safe).
+
+**Phase 1 exit criteria (met)**
+- Can login with both auth methods.
+- Role-based navigation and route access works.
+
+**Phase 1 user stories (met)**
+1. As a user, I can sign in with email/password.
 2. As a user, I can sign in with Google OAuth as an alternative.
-3. As an admin, I can see that protected endpoints reject unauthorized users.
-4. As an owner, I land on an owner-only route after login.
+3. As an admin, protected endpoints reject unauthorized users.
+4. As an owner, I land on owner-appropriate dashboard.
 5. As a dealer, I can log in and only see dealer-allowed sections.
 
 ---
 
-### Phase 2 — V1 App Development (MVP end-to-end)
-> Build complete backend + frontend in one connected pass; keep models simple but extensible.
+### Phase 2 — V1 App Development (MVP end-to-end) ✅ **COMPLETE**
+> Built full backend + frontend end-to-end with RBAC and seeded demo data.
 
-**Backend (FastAPI + MongoDB)**
-- Data models/collections (MVP): Users, Teams, Dealers, Products, Reports (typed), Requests (typed), Messages (threads + items), Notifications.
-- Core modules/endpoints:
-  - Users: CRUD (admin), profile (self), role management (owner/admin).
-  - Teams: create/update/delete; add/remove members; multi-team membership.
-  - Dealers: onboard/edit/archive; assign to rep/team; dealer self-profile.
-  - Products: admin CRUD.
-  - Reports (single collection with `type` discriminator):
-    - Sales Requirement, Sales Enquiry, Product Enquiry, Field Report, Farm Visit, Dealer Visit, Area Status.
-    - Base64 attachments (images/docs) with size limits + MIME metadata.
-  - Requests/Approvals (single collection with `type`): expense/leave/travel; status workflow (pending/approved/rejected) + approver notes.
-  - Messaging:
-    - Threads (participants, lastMessageAt) + messages (text + optional base64 attachment).
-    - Polling endpoints: `GET /threads?updated_since=...`, `GET /threads/{id}/messages?after=...`.
-  - Notifications: generate on new message + request status change + report submission (to manager/admin); mark read.
-- Access control rules (minimum):
-  - Rep: only own reports/requests, assigned dealers, threads they’re in.
-  - Admin/Manager: all within teams they manage (or global if Admin).
-  - Owner: read-all dashboards + drilldowns.
-  - Dealer: only own dealer record + own enquiries/requirements + threads with assigned rep/admin.
+#### Backend (FastAPI + MongoDB) ✅
+**Delivered collections/modules**
+- Users, User Sessions, Teams, Dealers, Products, Reports (typed), Requests (typed), Threads, Messages, Notifications.
 
-**Frontend (React + shadcn/ui + Tailwind)**
-- App shell: left nav + top bar + role switch banner (role shown) + notifications bell.
-- Dashboards:
-  - Owner: company KPIs, weekly/monthly charts, top reps/dealers, team breakdown.
-  - Admin/Manager: approvals queue, activity feed, team KPIs, report/visit analytics.
-  - Rep: my KPIs, quick actions (new report, new dealer, new request), my pipeline (dealers/enquiries).
-  - Dealer: my enquiries/requirements + messaging.
-- Core screens:
-  - Dealers: list (filters), onboard form, dealer detail (timeline: reports/requests/messages).
-  - Reports: create forms per type (shared component + type-specific fields), list, detail view with attachments preview.
-  - Requests: create expense/leave/travel, list, detail; approvals screen for managers/admin.
-  - Teams: CRUD + member management.
-  - Products: CRUD.
-  - Messaging: thread list + chat panel; polling (3–5s) + “typing-like” local indicator.
-- Analytics: recharts for trends + tables with filters (date range, team, rep, dealer).
+**Delivered endpoints**
+- Auth: login, google session exchange, `/auth/me`, logout.
+- Users: CRUD (Admin/Owner), self password change.
+- Teams: CRUD + add/remove members (multi-team support).
+- Dealers: onboard/edit/delete (admin only delete), role-based listing & detail.
+- Products: CRUD (Admin/Owner), list for all roles.
+- Reports: create/list/detail/delete for **7 report types**:
+  - `sales_requirement`, `sales_enquiry`, `product_enquiry`, `field_report`, `farm_visit`, `dealer_visit`, `area_status`
+  - **Base64 attachments** supported.
+- Requests: create/list/filter for `expense`, `leave`, `travel` + approve/reject workflow.
+- Messaging: WhatsApp-style threads + messages with **polling support** (`?after=`).
+- Notifications: list, mark read, mark all read.
+- Dashboard analytics: role-aware `/dashboard/summary` including KPIs, trend, type mix, top reps, team breakdown, recent activity.
 
-**Phase 2 user stories**
-1. As a sales rep, I can onboard a dealer and assign it to myself so I can start reporting immediately.
-2. As a sales rep, I can submit a farm visit report with images/documents so my manager has proof and context.
-3. As an admin/manager, I can review and approve/reject expense/leave/travel requests so operations stay controlled.
-4. As an admin, I can create teams and add/remove reps so reporting and access follow the org structure.
-5. As a dealer, I can view my submitted enquiries/requirements and message my rep to follow up.
-6. As an owner, I can view weekly/monthly performance and drill down to a rep/dealer to audit activity.
+**RBAC rules implemented**
+- Sales Rep: only own reports/requests, assigned dealers, threads they participate in.
+- Manager: visibility for members in their team(s) + own.
+- Admin/Owner: global visibility.
+- Dealer: restricted visibility to dealer-appropriate reporting and their related threads.
 
-**End of Phase 2:** run testing_agent_v3 for 1 full E2E pass (seed users + create dealer + submit report + request approval + send message + verify dashboards update).
+**Auto-seed (on first startup)**
+- 6 users (Owner/Admin/Manager/2×Rep/Dealer)
+- 1 team
+- 5 products
+- 1 dealer
+
+#### Frontend (React + shadcn/ui + Tailwind + recharts) ✅
+**App shell**
+- Responsive sidebar + top bar
+- Role badge
+- Notifications bell (unread count)
+- User menu + settings
+
+**Role dashboards delivered**
+- Owner dashboard: company KPIs, trend chart, top reps, report mix, team breakdown, recent activity.
+- Admin/Manager dashboard: approval queue, team activity chart, KPIs, recent activity.
+- Sales Rep dashboard: personal KPIs, quick actions, recent requests, recent activity.
+- Dealer dashboard: enquiries view + quick CTA + product catalogue highlights.
+
+**Core screens delivered**
+- Dealers: list + filters, onboarding dialog (optional dealer login creation), dealer detail with timeline.
+- Reports: list + filters/search, dynamic “New Report” form per type, report detail view, attachment uploader.
+- Requests: create expense/leave/travel + list/status.
+- Approvals: manager/admin approval queue with approve/reject and filters.
+- Teams: create team, add/remove members, delete.
+- Products: catalogue list; admin add/delete.
+- Messages: thread list + chat pane, thread creation (participants + optional dealer tag), polling updates, attachments.
+- Users: admin/owner management (create/edit/delete).
+- Settings: profile info + change password.
+
+**Design system delivered**
+- Agro refined palette (forest green + calm neutrals)
+- Typography: Space Grotesk (display) + Figtree (body)
+- Modern minimal shell + data-rich dashboards
+- `data-testid` added across key interactive elements for automated testing.
+
+**Phase 2 user stories (met)**
+1. Rep can onboard dealer and start reporting.
+2. Rep can submit visit/enquiry reports with base64 attachments.
+3. Admin/Manager can approve/reject expense/leave/travel requests.
+4. Admin can create teams and manage membership.
+5. Dealer can log in, view relevant enquiries, and message rep/team.
+6. Owner can view weekly/monthly style performance and drill into activity.
+
+**End of Phase 2 (met)**
+- testing_agent_v3 executed end-to-end.
 
 ---
 
-### Phase 3 — Testing, Hardening, UX polish
-- Expand automated/manual E2E coverage with testing_agent_v3: role matrix, permissions, pagination, attachment edge cases.
-- Fix bugs from testing: RBAC leaks, polling race conditions, attachment size failures, dashboard aggregation errors.
-- Performance baseline:
-  - Add indexes (dealerId, repId, teamIds, createdAt, type, status, lastMessageAt).
-  - Server-side pagination everywhere.
-- UX polish:
-  - Offline-friendly form drafts (localStorage) for reps in the field.
-  - Better attachment preview (image + pdf), upload size warnings.
-  - Empty/error states, toasts, confirm dialogs.
+### Phase 3 — Testing, Hardening, UX polish ✅ **COMPLETE (V1 Stability)**
+> Phase 3 originally focused on E2E validation and fixing bugs discovered.
 
-**Phase 3 user stories**
-1. As a sales rep, I can save a draft report and submit later if connectivity is weak.
-2. As an admin, I can filter analytics by date/team/rep to quickly spot issues.
-3. As a manager, I can see a unified activity timeline per rep/dealer to coach better.
-4. As a dealer, I get a clear notification when my rep responds in a thread.
-5. As an owner, dashboards load quickly even with months of data.
+**Completed**
+- Ran testing_agent_v3:
+  - **Backend: 61/61 tests passed**
+  - **Frontend: all major flows passed**
+- No blocking issues reported.
 
-**End of Phase 3:** run testing_agent_v3 again for full regression.
+**Deferred polish items (optional)**
+- Offline-friendly report drafts (localStorage) for field reps
+- More advanced attachment previews (PDF paging, better doc icons)
+- Pagination controls for large datasets
+- Additional empty/error/skeleton refinements
 
 ---
 
-### Phase 4+ — Enhancements (as requested)
-- Optional: export (CSV/PDF) for reports/analytics; shareable weekly summary.
-- Optional: territories/regions and geo-tagging for visits.
-- Optional: SLA reminders/auto-followups for enquiries.
-- Optional: granular permissions (Admin vs Manager split) and audit log.
+### Phase 4+ — Enhancements (as requested / next backlog)
+- Export (CSV/PDF) for reports and analytics; shareable weekly summary.
+- Territories/regions and optional geo-tagging (lat/long) for visits.
+- SLA reminders and automated follow-ups for enquiries and requirements.
+- Audit log for sensitive actions (approvals, deletions, role changes).
+- Granular permissions split (Admin vs Manager capabilities) + configurable scopes.
+- Dark mode toggle in UI.
 
 ## 3) Next Actions
-1. Implement Phase 1 OAuth+JWT POC (backend + minimal frontend login + seed users).
-2. Confirm redirect URIs and env vars for Emergent Managed Google Auth.
-3. After POC passes, proceed to Phase 2 bulk build (backend models/endpoints + frontend screens) with one integrated run.
-4. Run testing_agent_v3 at end of Phase 2 and fix blockers before moving to Phase 3.
+1. **(Optional)** Add server-side pagination, indexes tuning, and performance profiling for larger datasets.
+2. **(Optional)** Add CSV/PDF export for owner/admin dashboards and reports.
+3. **(Optional)** Introduce territories and geo-tagging for visit reports.
+4. **(Optional)** Add SLA reminders/notifications and escalation rules.
+5. **(Optional)** Add audit logs and finer-grained permissions.
 
 ## 4) Success Criteria
-- Auth: both email/password and Google OAuth work; role-based routing + endpoint protection verified.
-- Core flows: dealer onboarding, report submission with base64 attachments, approvals, messaging threads all work end-to-end.
-- Dashboards: Owner/Admin/Rep/Dealer dashboards show correct KPIs and drilldowns based on role.
-- Reliability: testing_agent_v3 passes core scenarios with no RBAC leaks and no broken navigation.
-- UX: fast forms, clear states, usable on field devices (responsive layout).
+✅ **Met for V1**
+- Auth: email/password + Google OAuth supported; session token works via cookie and bearer header.
+- Core flows: dealer onboarding, reporting with base64 attachments, approvals, messaging, notifications all work end-to-end.
+- Dashboards: role-based dashboards render correct KPIs and datasets.
+- Reliability: testing_agent_v3 pass (backend + frontend) with no RBAC leaks found.
+- UX: modern minimal + data-rich hybrid UI; responsive layout; consistent components.
+
+🚀 **Success criteria for Phase 4+ enhancements**
+- Exports and reminders are reliable and configurable.
+- Dashboards remain fast at scale (pagination + indexes + aggregation optimizations).
+- Audit and permissions meet internal compliance needs.
