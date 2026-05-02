@@ -5,7 +5,9 @@
 - **Support multi-role access (DONE)** across **5 roles** (Owner, Admin, Manager, Sales Rep, Dealer) with **email/password + Emergent Managed Google OAuth**.
 - **Provide modern-minimal UI with bold, data-rich dashboards (DONE)**: KPI cards, filters, charts (recharts), quick actions, and fast reporting flows.
 - **Ensure end-to-end stability (DONE)**: testing_agent_v3 executed with **61/61 backend tests passed** and **all major frontend flows passed**.
-- **Next objective (Phase 3+)**: hardening/polish and optional enhancements (exports, geo/territories, reminders, audit log, granular permissions, dark-mode toggle).
+- **Deliver requested Phase 3 enhancements (DONE)** as **v1.1**:
+  1) **CSV/PDF exports**, 2) **Territories + geo-tagging**, 3) **SLA reminders + resolve workflow**, 4) **Audit log + granular permissions**, 5) **Dark-mode toggle**.
+- **Current objective (Phase 4+)**: optional scaling hardening (pagination, query optimization), operational controls (retention, admin settings), and product refinements.
 
 ## 2) Implementation Steps
 
@@ -128,30 +130,117 @@
 
 ---
 
-### Phase 4+ — Enhancements (as requested / next backlog)
-- Export (CSV/PDF) for reports and analytics; shareable weekly summary.
-- Territories/regions and optional geo-tagging (lat/long) for visits.
-- SLA reminders and automated follow-ups for enquiries and requirements.
-- Audit log for sensitive actions (approvals, deletions, role changes).
-- Granular permissions split (Admin vs Manager capabilities) + configurable scopes.
-- Dark mode toggle in UI.
+### Phase 4 — Enhancements (Requested backlog) ✅ **COMPLETE (v1.1)**
+> Implemented all requested enhancements end-to-end, including backend + frontend + RBAC updates.
+
+#### 4.1 Exports (CSV/PDF) ✅
+**Backend**
+- New module: `/app/backend/routes/export_routes.py`
+- Endpoints:
+  - `GET /api/exports/reports.csv` (role-scoped)
+  - `GET /api/exports/reports.pdf` (role-scoped, reportlab)
+  - `GET /api/exports/requests.csv` (role-scoped)
+  - `GET /api/exports/dashboard.pdf?days=N` (owner/admin only)
+
+**Frontend**
+- Reports page: Export dropdown (CSV + PDF)
+- Requests page: Export CSV (owner/admin/manager only)
+- Owner + Admin dashboards: Export PDF
+
+#### 4.2 Territories + Geo-tagging ✅
+**Backend**
+- New collection: `territories`
+- Models: `TerritoryIn`, `GeoPoint`
+- Endpoints: `GET/POST/PATCH/DELETE /api/territories` (POST/PATCH/DELETE owner+admin)
+- Reports support: `territory_id` + `geo` (lat/lng/accuracy/captured_at)
+- Dealers support: `territory_id` + optional `location` GeoPoint
+
+**Frontend**
+- New page `/territories` with create/edit dialog:
+  - name/code/region/state/districts
+  - geo center lat/lng
+  - optional team + manager + rep coverage
+- NewReport form:
+  - territory dropdown
+  - “Capture location” (navigator.geolocation) for visit-type reports
+
+#### 4.3 SLA reminders + auto-followups ✅
+**Backend**
+- Reports support `due_at` and resolve fields (`resolved`, `resolved_at`, `resolved_by_name`).
+- New endpoints:
+  - `GET /api/sla/overdue`
+  - `GET /api/sla/upcoming?days=7`
+  - `POST /api/sla/sweep`
+  - `POST /api/reports/{id}/resolve`
+- Background task: asyncio loop runs every 15 minutes to notify:
+  - report author + their managers
+  - notification type: `sla_overdue`
+
+**Frontend**
+- New page `/overdue` with Overdue + Upcoming tabs + inline Resolve
+- NewReport form: due date input for enquiry/requirement types
+- Reports list: Overdue-only toggle + Overdue/Resolved badges + inline Resolve
+
+#### 4.4 Audit log + Admin-vs-Manager permission split ✅
+**Backend**
+- New collection: `audit_log`
+- Helper: `audit.record()` invoked from user/team/product/territory/dealer/report/request actions.
+- New permissions module: `/app/backend/permissions.py` (explicit action matrix)
+- Audit endpoint (owner/admin only): `GET /api/audit`
+- Testing agent fixes applied:
+  - Dealer can `GET /api/territories` (added `territories.read`)
+  - POST endpoints return `201` where appropriate
+
+**Frontend**
+- New page `/audit` with entity/action filters and metadata display
+- Navigation updated:
+  - Audit visible only to owner/admin
+  - Territories visible to internal roles (and dealer read-only access remains via backend)
+
+#### 4.5 Dark mode toggle ✅
+**Frontend**
+- ThemeProvider: `/app/frontend/src/lib/theme.js`
+  - persists to `localStorage: rbx_theme`
+  - respects `prefers-color-scheme`
+- Header toggle: sun/moon button
+- Uses existing `.dark` tokens in `index.css`.
+
+#### Phase 4 Testing ✅
+- testing_agent_v3 executed targeted Phase 4 tests.
+- Backend: **100% pass after fixes**.
+- Frontend: **~95%** (one item flagged: modal overlay blocks navigation while dialog open — **expected shadcn Dialog behavior**; ESC/Cancel closes).
+
+---
+
+### Phase 5+ — Optional scaling / product hardening (Backlog)
+- Pagination and server-side filtering for all list endpoints (dealers, reports, requests, audit).
+- Export customization (fields selection, date range, territory/team filters) + scheduled weekly owner email.
+- SLA escalation rules (2-level escalation, reminders before due date, per-report-type SLAs).
+- Geo validation + maps view (pin reports/dealers on map), geo-fencing per territory.
+- Attachment storage upgrade (S3-compatible) if file sizes increase beyond base64 practicality.
+- Compliance: retention policies for audit log, PII masking options.
 
 ## 3) Next Actions
-1. **(Optional)** Add server-side pagination, indexes tuning, and performance profiling for larger datasets.
-2. **(Optional)** Add CSV/PDF export for owner/admin dashboards and reports.
-3. **(Optional)** Introduce territories and geo-tagging for visit reports.
-4. **(Optional)** Add SLA reminders/notifications and escalation rules.
-5. **(Optional)** Add audit logs and finer-grained permissions.
+1. **(Optional)** Add server-side pagination + indexes tuning for larger datasets.
+2. **(Optional)** Add scheduled exports (weekly/monthly PDF packs) and shareable links.
+3. **(Optional)** Add map view for territories/dealers/reports.
+4. **(Optional)** Add SLA escalation rules + pre-due reminders.
+5. **(Optional)** Add admin-configurable permission scopes (feature flags per role).
 
 ## 4) Success Criteria
-✅ **Met for V1**
+✅ **Met for V1.1 (current state)**
 - Auth: email/password + Google OAuth supported; session token works via cookie and bearer header.
-- Core flows: dealer onboarding, reporting with base64 attachments, approvals, messaging, notifications all work end-to-end.
-- Dashboards: role-based dashboards render correct KPIs and datasets.
-- Reliability: testing_agent_v3 pass (backend + frontend) with no RBAC leaks found.
+- Core flows: dealer onboarding, reporting with base64 attachments, approvals, messaging, notifications work end-to-end.
+- Enhancements delivered:
+  - Exports: CSV/PDF endpoints + UI download actions
+  - Territories + geo-tagging: territory CRUD + report geo capture
+  - SLA: due dates, overdue/upcoming lists, sweep notifications, resolve flow
+  - Audit log: sensitive actions captured + audit viewer
+  - Dark mode: persistent theme toggle
+- Reliability: testing_agent_v3 coverage for v1 + targeted v1.1 tests.
 - UX: modern minimal + data-rich hybrid UI; responsive layout; consistent components.
 
-🚀 **Success criteria for Phase 4+ enhancements**
-- Exports and reminders are reliable and configurable.
-- Dashboards remain fast at scale (pagination + indexes + aggregation optimizations).
-- Audit and permissions meet internal compliance needs.
+🚀 **Success criteria for future Phase 5+**
+- Dashboards and lists remain fast at scale (pagination + aggregation optimizations).
+- SLA reminders are configurable and measurable (reduction in overdue backlog).
+- Audit and permissions meet internal compliance needs (retention, traceability).

@@ -44,11 +44,11 @@
     "status": "completed"
   },
   {
-    "content": "Phase 3: End-to-end testing via testing_agent_v3",
-    "status": "in_progress"
+    "content": "Phase 3: End-to-end testing via testing_agent_v3 (backend 100%, frontend 95%)",
+    "status": "completed"
   },
   {
-    "content": "Phase 3: Fix all issues from testing agent",
-    "status": "pending"
+    "content": "Phase 3: Fix all issues from testing agent (testing agent applied fixes; modal overlay is standard shadcn Dialog behavior, not a bug)",
+    "status": "completed"
   }
 ]
