@@ -1,9 +1,9 @@
-"""Seed initial users, teams, products, and a sample dealer for demo/testing."""
+"""Seed initial users, teams, territories, products, and a sample dealer for demo/testing."""
 import logging
 from datetime import datetime, timezone
 import uuid
 
-from db import users as users_col, teams, products, dealers
+from db import users as users_col, teams, products, dealers, territories
 from auth import hash_password
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ async def seed_if_empty():
     count = await users_col.count_documents({})
     if count > 0:
         return
-    logger.info('Seeding initial users, team, products, dealer...')
+    logger.info('Seeding initial users, team, territory, products, dealer...')
     now = datetime.now(timezone.utc).isoformat()
     created_ids = {}
     for u in SEED_USERS:
@@ -47,8 +47,46 @@ async def seed_if_empty():
         await users_col.insert_one(doc)
         created_ids[u['email']] = user_id
 
-    # Create a default team
+    # Team
     team_id = f"team_{uuid.uuid4().hex[:10]}"
+
+    # Territories
+    territory_ids = []
+    seed_territories = [
+        {
+            'name': 'Pune District',
+            'code': 'MH-PUN',
+            'region': 'West',
+            'state': 'Maharashtra',
+            'districts': ['Pune', 'Pimpri-Chinchwad'],
+            'description': 'Grapes, sugarcane & pomegranate belt',
+            'center': {'lat': 18.5204, 'lng': 73.8567, 'accuracy_m': None, 'captured_at': None},
+            'rep_ids': [created_ids['rep@rexbotanix.com']],
+        },
+        {
+            'name': 'Nashik District',
+            'code': 'MH-NSK',
+            'region': 'West',
+            'state': 'Maharashtra',
+            'districts': ['Nashik', 'Niphad', 'Dindori'],
+            'description': 'Grape & onion belt',
+            'center': {'lat': 19.9975, 'lng': 73.7898, 'accuracy_m': None, 'captured_at': None},
+            'rep_ids': [created_ids['rep2@rexbotanix.com']],
+        },
+    ]
+    for st in seed_territories:
+        tid = f"tty_{uuid.uuid4().hex[:10]}"
+        doc = {
+            'territory_id': tid,
+            **st,
+            'team_id': team_id,
+            'manager_id': created_ids['manager@rexbotanix.com'],
+            'created_at': now,
+            'updated_at': now,
+        }
+        await territories.insert_one(doc)
+        territory_ids.append(tid)
+
     await teams.insert_one({
         'team_id': team_id,
         'name': 'North Zone Field Team',
@@ -58,6 +96,7 @@ async def seed_if_empty():
             created_ids['rep@rexbotanix.com'],
             created_ids['rep2@rexbotanix.com'],
         ],
+        'territory_ids': territory_ids,
         'created_at': now,
         'updated_at': now,
     })
@@ -66,7 +105,6 @@ async def seed_if_empty():
         {'$set': {'team_ids': [team_id]}},
     )
 
-    # Products
     sample_products = [
         {'name': 'Rex Grow NPK 19-19-19', 'sku': 'RG-NPK-19', 'category': 'Water Soluble', 'pack_size': '25kg', 'unit': 'Bag', 'mrp': 3200},
         {'name': 'Rex Bio Micro Mix', 'sku': 'RB-MICRO-M', 'category': 'Micronutrient', 'pack_size': '1L', 'unit': 'Bottle', 'mrp': 620},
@@ -83,7 +121,6 @@ async def seed_if_empty():
             'updated_at': now,
         })
 
-    # Sample dealer
     dealer_user_id = created_ids['dealer@rexbotanix.com']
     await dealers.insert_one({
         'dealer_id': f"dlr_{uuid.uuid4().hex[:10]}",
@@ -100,7 +137,9 @@ async def seed_if_empty():
         'status': 'active',
         'assigned_rep_id': created_ids['rep@rexbotanix.com'],
         'team_id': team_id,
-        'user_id': dealer_user_id,  # link dealer login to dealer record
+        'territory_id': territory_ids[0],
+        'location': {'lat': 18.5018, 'lng': 73.8636, 'accuracy_m': None, 'captured_at': None},
+        'user_id': dealer_user_id,
         'created_at': now,
         'updated_at': now,
     })

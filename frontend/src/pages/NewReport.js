@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Card } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { REPORT_TYPES } from '@/lib/utils-crm';
 import { AttachmentGrid } from '@/components/AttachmentGrid';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, MapPin, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const baseForm = {
@@ -25,6 +25,9 @@ const baseForm = {
     area: '',
     amount: '',
     next_action: '',
+    due_at: '',
+    territory_id: '',
+    geo: null,
     notes: '',
     items: [],
     attachments: [],
@@ -41,11 +44,14 @@ export default function NewReport() {
     }));
     const [dealers, setDealers] = useState([]);
     const [products, setProducts] = useState([]);
+    const [territories, setTerritories] = useState([]);
     const [submitting, setSubmitting] = useState(false);
+    const [capturingGeo, setCapturingGeo] = useState(false);
 
     useEffect(() => {
         api.get('/dealers').then(({ data }) => setDealers(data)).catch(() => {});
         api.get('/products').then(({ data }) => setProducts(data)).catch(() => {});
+        api.get('/territories').then(({ data }) => setTerritories(data)).catch(() => {});
     }, []);
 
     const isDealer = user?.role === 'dealer';
@@ -53,6 +59,29 @@ export default function NewReport() {
         if (isDealer) return REPORT_TYPES.filter((t) => ['product_enquiry', 'sales_enquiry', 'sales_requirement'].includes(t.value));
         return REPORT_TYPES;
     }, [isDealer]);
+
+    const captureGeo = () => {
+        if (!navigator.geolocation) { toast.error('Geolocation not available in this browser'); return; }
+        setCapturingGeo(true);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                setForm((f) => ({
+                    ...f,
+                    geo: {
+                        lat: pos.coords.latitude,
+                        lng: pos.coords.longitude,
+                        accuracy_m: pos.coords.accuracy,
+                        captured_at: new Date().toISOString(),
+                    },
+                }));
+                setCapturingGeo(false);
+                toast.success('Location captured');
+            },
+            (err) => { setCapturingGeo(false); toast.error(err.message || 'Could not get location'); },
+            { enableHighAccuracy: true, timeout: 12000 }
+        );
+    };
+    const clearGeo = () => setForm((f) => ({ ...f, geo: null }));
 
     const save = async (e) => {
         e.preventDefault();
@@ -64,6 +93,9 @@ export default function NewReport() {
                 amount: form.amount ? Number(form.amount) : null,
                 items: (form.items || []).filter((i) => i.product_id),
                 dealer_id: form.dealer_id || null,
+                territory_id: form.territory_id || null,
+                due_at: form.due_at || null,
+                geo: form.geo || null,
             };
             await api.post('/reports', payload);
             toast.success('Report submitted');
@@ -79,12 +111,14 @@ export default function NewReport() {
     const showFarmFields = ['farm_visit', 'field_report'].includes(form.type);
     const showDealer = ['dealer_visit', 'sales_requirement', 'sales_enquiry', 'product_enquiry'].includes(form.type);
     const showItems = ['sales_requirement', 'product_enquiry'].includes(form.type);
+    const showGeo = ['farm_visit', 'field_report', 'dealer_visit', 'area_status'].includes(form.type);
+    const showDue = ['sales_requirement', 'sales_enquiry', 'product_enquiry'].includes(form.type);
 
     return (
         <form className="space-y-6 max-w-3xl" onSubmit={save} data-testid="new-report-form">
             <div>
                 <h1 className="font-display text-2xl md:text-3xl font-semibold tracking-tight">New report</h1>
-                <p className="text-sm text-muted-foreground">Fill the details. Add photos & documents as needed.</p>
+                <p className="text-sm text-muted-foreground">Fill the details. Add photos, documents, a due date (SLA), and optional geo-location.</p>
             </div>
 
             <Card className="rounded-2xl p-4 md:p-6 space-y-4">
@@ -120,12 +154,51 @@ export default function NewReport() {
                         <Field label="Farmer name"><Input value={form.farmer_name} onChange={(e) => setForm({ ...form, farmer_name: e.target.value })} data-testid="report-farmer-input" /></Field>
                         <Field label="Crop"><Input value={form.crop} onChange={(e) => setForm({ ...form, crop: e.target.value })} data-testid="report-crop-input" /></Field>
                         <Field label="Acreage"><Input type="number" step="0.1" value={form.acreage} onChange={(e) => setForm({ ...form, acreage: e.target.value })} data-testid="report-acreage-input" /></Field>
-                        <Field label="Location"><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} data-testid="report-location-input" /></Field>
+                        <Field label="Location (text)"><Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} data-testid="report-location-input" /></Field>
                     </div>
                 )}
 
                 {form.type === 'area_status' && (
                     <Field label="Area"><Input value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} data-testid="report-area-input" /></Field>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <Field label="Territory (optional)">
+                        <Select value={form.territory_id} onValueChange={(v) => setForm({ ...form, territory_id: v })}>
+                            <SelectTrigger data-testid="report-territory-select"><SelectValue placeholder="Select territory" /></SelectTrigger>
+                            <SelectContent>
+                                {territories.map((t) => <SelectItem key={t.territory_id} value={t.territory_id}>{t.name} {t.code ? `· ${t.code}` : ''}</SelectItem>)}
+                            </SelectContent>
+                        </Select>
+                    </Field>
+                    {showDue && (
+                        <Field label="Due by (SLA)">
+                            <Input type="datetime-local" value={form.due_at ? form.due_at.slice(0, 16) : ''} onChange={(e) => setForm({ ...form, due_at: e.target.value ? new Date(e.target.value).toISOString() : '' })} data-testid="report-due-input" />
+                        </Field>
+                    )}
+                </div>
+
+                {showGeo && (
+                    <div className="rounded-xl border bg-secondary/40 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-sm font-medium"><MapPin className="h-4 w-4" /> Geo-tag this visit</div>
+                            <div className="flex items-center gap-2">
+                                <Button type="button" variant="outline" size="sm" onClick={captureGeo} disabled={capturingGeo} data-testid="report-geo-capture">
+                                    {capturingGeo ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <MapPin className="h-4 w-4 mr-1" />}
+                                    {capturingGeo ? 'Capturing…' : form.geo ? 'Recapture' : 'Capture location'}
+                                </Button>
+                                {form.geo && <Button type="button" variant="ghost" size="sm" onClick={clearGeo} data-testid="report-geo-clear">Clear</Button>}
+                            </div>
+                        </div>
+                        {form.geo ? (
+                            <div className="text-xs text-muted-foreground font-mono">
+                                {Number(form.geo.lat).toFixed(5)}, {Number(form.geo.lng).toFixed(5)}
+                                {form.geo.accuracy_m ? ` ± ${Math.round(form.geo.accuracy_m)}m` : ''}
+                            </div>
+                        ) : (
+                            <div className="text-xs text-muted-foreground">Tip: in the field, tap Capture to tag the visit with your current location.</div>
+                        )}
+                    </div>
                 )}
 
                 {showItems && (

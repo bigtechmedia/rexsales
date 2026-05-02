@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '@/lib/api';
+import api, { API_BASE } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { KpiCard } from '@/components/KpiCard';
 import { Card } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
 import { ApprovalCard } from '@/components/ApprovalCard';
-import { ClipboardList, Users, AlertCircle, Gauge } from 'lucide-react';
+import { ClipboardList, Users, AlertCircle, Gauge, Download } from 'lucide-react';
 import { REPORT_TYPES, formatCurrency, formatDate } from '@/lib/utils-crm';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -39,6 +39,22 @@ export default function DashboardAdmin() {
 
     useEffect(() => { load(); }, [range]);
 
+    const exportPdf = async () => {
+        try {
+            const url = `${API_BASE}/exports/dashboard.pdf?days=${range}`;
+            const token = localStorage.getItem('rbx_session_token');
+            const res = await fetch(url, { credentials: 'include', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            if (!res.ok) throw new Error(`Export failed (${res.status})`);
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `rex_botanix_dashboard_${range}d.pdf`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            toast.success('Exported PDF');
+        } catch (e) { toast.error(e.message || 'Export failed'); }
+    };
+
     const onAction = async (action, req) => {
         try {
             await api.post(`/requests/${req.request_id}/action`, { action });
@@ -57,6 +73,9 @@ export default function DashboardAdmin() {
                     <p className="text-sm text-muted-foreground">Approvals, team activity and performance at a glance.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {['owner', 'admin'].includes(user?.role) && (
+                        <Button variant="outline" onClick={exportPdf} data-testid="dashboard-export-pdf"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
+                    )}
                     <Select value={range} onValueChange={setRange}>
                         <SelectTrigger className="w-36 rounded-xl" data-testid="dashboard-timeframe-select"><SelectValue /></SelectTrigger>
                         <SelectContent>

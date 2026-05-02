@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth';
 import api from '@/lib/api';
 import { ROLE_LABELS, initials, relativeTime } from '@/lib/utils-crm';
 import { Logo } from '@/components/Logo';
+import ThemeToggle from '@/components/ThemeToggle';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
@@ -14,21 +15,40 @@ import { Separator } from '@/components/ui/separator';
 import {
     LayoutDashboard, Users, Store, PackageSearch, ShieldCheck, ClipboardList, FileText,
     MessageSquare, LogOut, Bell, Settings as SettingsIcon, Menu, Plane, Receipt, BadgeCheck,
+    MapPin, History, AlertTriangle,
 } from 'lucide-react';
 
 function navForRole(role) {
     const common = [{ to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }];
-    if (role === 'owner' || role === 'admin') {
+    if (role === 'owner') {
         return [
             ...common,
             { to: '/dealers', label: 'Dealers', icon: Store },
             { to: '/reports', label: 'Reports', icon: FileText },
+            { to: '/overdue', label: 'SLA / Overdue', icon: AlertTriangle },
+            { to: '/approvals', label: 'Approvals', icon: ShieldCheck },
+            { to: '/messages', label: 'Messages', icon: MessageSquare },
+            { to: '/teams', label: 'Teams', icon: BadgeCheck },
+            { to: '/territories', label: 'Territories', icon: MapPin },
+            { to: '/products', label: 'Products', icon: PackageSearch },
+            { to: '/users', label: 'Users', icon: Users },
+            { to: '/audit', label: 'Audit log', icon: History },
+        ];
+    }
+    if (role === 'admin') {
+        return [
+            ...common,
+            { to: '/dealers', label: 'Dealers', icon: Store },
+            { to: '/reports', label: 'Reports', icon: FileText },
+            { to: '/overdue', label: 'SLA / Overdue', icon: AlertTriangle },
             { to: '/approvals', label: 'Approvals', icon: ShieldCheck },
             { to: '/requests', label: 'My Requests', icon: Receipt },
             { to: '/messages', label: 'Messages', icon: MessageSquare },
             { to: '/teams', label: 'Teams', icon: BadgeCheck },
+            { to: '/territories', label: 'Territories', icon: MapPin },
             { to: '/products', label: 'Products', icon: PackageSearch },
             { to: '/users', label: 'Users', icon: Users },
+            { to: '/audit', label: 'Audit log', icon: History },
         ];
     }
     if (role === 'manager') {
@@ -36,10 +56,12 @@ function navForRole(role) {
             ...common,
             { to: '/dealers', label: 'Dealers', icon: Store },
             { to: '/reports', label: 'Reports', icon: FileText },
+            { to: '/overdue', label: 'SLA / Overdue', icon: AlertTriangle },
             { to: '/approvals', label: 'Approvals', icon: ShieldCheck },
             { to: '/requests', label: 'My Requests', icon: Receipt },
             { to: '/messages', label: 'Messages', icon: MessageSquare },
             { to: '/teams', label: 'Teams', icon: BadgeCheck },
+            { to: '/territories', label: 'Territories', icon: MapPin },
             { to: '/products', label: 'Products', icon: PackageSearch },
         ];
     }
@@ -48,13 +70,14 @@ function navForRole(role) {
             ...common,
             { to: '/dealers', label: 'My Dealers', icon: Store },
             { to: '/reports', label: 'My Reports', icon: FileText },
+            { to: '/overdue', label: 'SLA / Overdue', icon: AlertTriangle },
             { to: '/reports/new', label: 'New Report', icon: ClipboardList },
             { to: '/requests', label: 'Expense / Leave / Travel', icon: Plane },
             { to: '/messages', label: 'Messages', icon: MessageSquare },
+            { to: '/territories', label: 'Territories', icon: MapPin },
             { to: '/products', label: 'Products', icon: PackageSearch },
         ];
     }
-    // dealer
     return [
         ...common,
         { to: '/reports/new', label: 'New Enquiry', icon: ClipboardList },
@@ -78,7 +101,7 @@ function NavItems({ items, onNav }) {
                             isActive ? 'bg-primary text-primary-foreground shadow-sm' : 'text-foreground hover:bg-muted/70'
                         }`
                     }
-                    data-testid={`nav-${to.replace(/\//g, '-').replace(/^-/, '')}`}
+                    data-testid={`nav-${to.replace(/\//g, '-').replace(/^-/, '') || 'root'}`}
                 >
                     <Icon className="h-4 w-4" />
                     <span className="truncate">{label}</span>
@@ -175,7 +198,6 @@ export default function AppShell() {
 
     return (
         <div className="min-h-screen flex bg-background relative app-noise">
-            {/* Desktop sidebar */}
             <aside className="hidden lg:flex w-[272px] shrink-0 flex-col border-r bg-secondary/40 backdrop-blur-sm">
                 <div className="h-14 flex items-center px-5 border-b"><Logo /></div>
                 <ScrollArea className="flex-1">
@@ -188,27 +210,28 @@ export default function AppShell() {
                 </div>
             </aside>
 
-            {/* Mobile sidebar */}
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetContent side="left" className="p-0 w-[270px]">
                     <div className="h-14 flex items-center px-5 border-b"><Logo /></div>
-                    <div className="p-3"><NavItems items={items} onNav={() => setMobileOpen(false)} /></div>
+                    <ScrollArea className="h-[calc(100vh-10rem)]">
+                        <div className="p-3"><NavItems items={items} onNav={() => setMobileOpen(false)} /></div>
+                    </ScrollArea>
                     <Separator />
                     <div className="p-3"><UserCard user={user} onLogout={onLogout} /></div>
                 </SheetContent>
             </Sheet>
 
-            {/* Main area */}
             <div className="flex-1 min-w-0 flex flex-col relative z-[1]">
                 <header className="h-14 border-b bg-card/70 backdrop-blur-sm flex items-center gap-2 px-4 lg:px-6 sticky top-0 z-20">
                     <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" data-testid="mobile-menu-button" onClick={() => setMobileOpen(true)}>
                         <Menu className="h-5 w-5" />
                     </Button>
                     <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Signed in as</span>
+                        <span className="text-sm text-muted-foreground hidden sm:inline">Signed in as</span>
                         <Badge variant="outline" className="font-normal" data-testid="header-role-badge">{ROLE_LABELS[user?.role] || user?.role}</Badge>
                     </div>
                     <div className="ml-auto flex items-center gap-1">
+                        <ThemeToggle />
                         <NotificationBell />
                         <UserMenu user={user} onLogout={onLogout} />
                     </div>

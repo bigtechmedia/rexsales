@@ -22,6 +22,8 @@ requests_col = db.requests
 threads = db.threads
 messages = db.messages
 notifications = db.notifications
+territories = db.territories
+audit_log = db.audit_log
 
 
 async def ensure_indexes():
@@ -36,12 +38,18 @@ async def ensure_indexes():
     await reports.create_index([('type', 1), ('created_at', -1)])
     await reports.create_index('author_id')
     await reports.create_index('dealer_id')
+    await reports.create_index('due_at')
+    await reports.create_index('territory_id')
     await requests_col.create_index('request_id', unique=True)
     await requests_col.create_index([('status', 1), ('created_at', -1)])
     await threads.create_index('thread_id', unique=True)
     await threads.create_index('last_message_at')
     await messages.create_index([('thread_id', 1), ('created_at', 1)])
     await notifications.create_index([('user_id', 1), ('created_at', -1)])
+    await territories.create_index('territory_id', unique=True)
+    await audit_log.create_index([('created_at', -1)])
+    await audit_log.create_index('actor_id')
+    await audit_log.create_index('entity_type')
 
 
 def get_client():

@@ -4,20 +4,21 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import teams, users as users_col
-from auth import require_roles
+from permissions import require_permission
 from models import TeamIn, TeamMembersReq
+from audit import record as audit_record
 
 router = APIRouter(prefix='/teams', tags=['teams'])
 
 
 @router.get('')
-async def list_teams(user=Depends(require_roles('owner', 'admin', 'manager', 'sales_rep'))):
+async def list_teams(user=Depends(require_permission('teams.read'))):
     cursor = teams.find({}, {'_id': 0}).sort('created_at', -1)
     return [t async for t in cursor]
 
 
 @router.post('')
-async def create_team(payload: TeamIn, user=Depends(require_roles('owner', 'admin'))):
+async def create_team(payload: TeamIn, user=Depends(require_permission('teams.create'))):
     now = datetime.now(timezone.utc).isoformat()
     team_id = f"team_{uuid.uuid4().hex[:10]}"
     doc = {
@@ -26,6 +27,7 @@ async def create_team(payload: TeamIn, user=Depends(require_roles('owner', 'admi
         'description': payload.description,
         'manager_id': payload.manager_id,
         'member_ids': payload.member_ids,
+        'territory_ids': payload.territory_ids,
         'created_at': now,
         'updated_at': now,
     }
@@ -41,41 +43,48 @@ async def create_team(payload: TeamIn, user=Depends(require_roles('owner', 'admi
             {'$addToSet': {'team_ids': team_id}},
         )
     doc.pop('_id', None)
+    await audit_record(user, 'create', 'team', team_id, payload.name)
     return doc
 
 
 @router.patch('/{team_id}')
-async def update_team(team_id: str, payload: TeamIn, user=Depends(require_roles('owner', 'admin'))):
+async def update_team(team_id: str, payload: TeamIn, user=Depends(require_permission('teams.update'))):
     updates = {
         'name': payload.name,
         'description': payload.description,
         'manager_id': payload.manager_id,
+        'territory_ids': payload.territory_ids,
         'updated_at': datetime.now(timezone.utc).isoformat(),
     }
     res = await teams.update_one({'team_id': team_id}, {'$set': updates})
     if res.matched_count == 0:
         raise HTTPException(404, 'Team not found')
+    await audit_record(user, 'update', 'team', team_id, payload.name)
     return await teams.find_one({'team_id': team_id}, {'_id': 0})
 
 
 @router.post('/{team_id}/members')
-async def add_members(team_id: str, payload: TeamMembersReq, user=Depends(require_roles('owner', 'admin'))):
+async def add_members(team_id: str, payload: TeamMembersReq, user=Depends(require_permission('teams.update'))):
     await teams.update_one({'team_id': team_id}, {'$addToSet': {'member_ids': {'$each': payload.member_ids}}, '$set': {'updated_at': datetime.now(timezone.utc).isoformat()}})
     await users_col.update_many({'user_id': {'$in': payload.member_ids}}, {'$addToSet': {'team_ids': team_id}})
+    await audit_record(user, 'update', 'team', team_id, None, {'added_members': payload.member_ids})
     return await teams.find_one({'team_id': team_id}, {'_id': 0})
 
 
 @router.delete('/{team_id}/members/{user_id}')
-async def remove_member(team_id: str, user_id: str, user=Depends(require_roles('owner', 'admin'))):
+async def remove_member(team_id: str, user_id: str, user=Depends(require_permission('teams.update'))):
     await teams.update_one({'team_id': team_id}, {'$pull': {'member_ids': user_id}, '$set': {'updated_at': datetime.now(timezone.utc).isoformat()}})
     await users_col.update_one({'user_id': user_id}, {'$pull': {'team_ids': team_id}})
+    await audit_record(user, 'update', 'team', team_id, None, {'removed_member': user_id})
     return await teams.find_one({'team_id': team_id}, {'_id': 0})
 
 
 @router.delete('/{team_id}')
-async def delete_team(team_id: str, user=Depends(require_roles('owner', 'admin'))):
+async def delete_team(team_id: str, user=Depends(require_permission('teams.delete'))):
+    existing = await teams.find_one({'team_id': team_id}, {'_id': 0, 'name': 1})
     res = await teams.delete_one({'team_id': team_id})
     if res.deleted_count == 0:
         raise HTTPException(404, 'Team not found')
     await users_col.update_many({}, {'$pull': {'team_ids': team_id}})
+    await audit_record(user, 'delete', 'team', team_id, (existing or {}).get('name'))
     return {'ok': True}

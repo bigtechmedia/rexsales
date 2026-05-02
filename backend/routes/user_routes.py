@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import users as users_col
-from auth import require_roles, hash_password
+from auth import hash_password, require_roles
+from permissions import require_permission
 from models import CreateUserReq, UpdateUserReq, ChangePasswordReq
+from audit import record as audit_record
 
 router = APIRouter(prefix='/users', tags=['users'])
 
@@ -19,13 +21,13 @@ def _clean(doc):
 
 
 @router.get('')
-async def list_users(user=Depends(require_roles('owner', 'admin', 'manager'))):
+async def list_users(user=Depends(require_permission('users.read'))):
     cursor = users_col.find({}, {'_id': 0, 'password_hash': 0}).sort('created_at', -1)
     return [u async for u in cursor]
 
 
-@router.post('')
-async def create_user(payload: CreateUserReq, user=Depends(require_roles('owner', 'admin'))):
+@router.post('', status_code=201)
+async def create_user(payload: CreateUserReq, user=Depends(require_permission('users.create'))):
     existing = await users_col.find_one({'email': payload.email.lower().strip()})
     if existing:
         raise HTTPException(400, 'User with this email already exists')
@@ -46,11 +48,12 @@ async def create_user(payload: CreateUserReq, user=Depends(require_roles('owner'
         'updated_at': now,
     }
     await users_col.insert_one(doc)
+    await audit_record(user, 'create', 'user', doc['user_id'], payload.name, {'email': payload.email, 'role': payload.role})
     return _clean(doc)
 
 
 @router.patch('/{user_id}')
-async def update_user(user_id: str, payload: UpdateUserReq, user=Depends(require_roles('owner', 'admin'))):
+async def update_user(user_id: str, payload: UpdateUserReq, user=Depends(require_permission('users.update'))):
     updates = {k: v for k, v in payload.model_dump().items() if v is not None and k != 'password'}
     if payload.password:
         updates['password_hash'] = hash_password(payload.password)
@@ -59,16 +62,19 @@ async def update_user(user_id: str, payload: UpdateUserReq, user=Depends(require
     if res.matched_count == 0:
         raise HTTPException(404, 'User not found')
     doc = await users_col.find_one({'user_id': user_id}, {'_id': 0, 'password_hash': 0})
+    await audit_record(user, 'update', 'user', user_id, doc.get('name'), {k: v for k, v in updates.items() if k != 'password_hash'})
     return doc
 
 
 @router.delete('/{user_id}')
-async def delete_user(user_id: str, user=Depends(require_roles('owner', 'admin'))):
+async def delete_user(user_id: str, user=Depends(require_permission('users.delete'))):
     if user_id == user['user_id']:
         raise HTTPException(400, 'Cannot delete your own account')
+    existing = await users_col.find_one({'user_id': user_id}, {'_id': 0, 'name': 1})
     res = await users_col.delete_one({'user_id': user_id})
     if res.deleted_count == 0:
         raise HTTPException(404, 'User not found')
+    await audit_record(user, 'delete', 'user', user_id, (existing or {}).get('name'))
     return {'ok': True}
 
 
@@ -84,4 +90,5 @@ async def change_my_password(payload: ChangePasswordReq, user=Depends(require_ro
         {'user_id': user['user_id']},
         {'$set': {'password_hash': hash_password(payload.new_password), 'updated_at': datetime.now(timezone.utc).isoformat()}},
     )
+    await audit_record(user, 'update', 'user', user['user_id'], user.get('name'), {'change': 'password'})
     return {'ok': True}

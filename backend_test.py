@@ -1,793 +1,554 @@
-"""Comprehensive backend API testing for Rex Botanix CRM."""
+"""Backend API tests for Rex Botanix CRM Phase 3 enhancements."""
 import requests
 import sys
-import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import time
 
 BASE_URL = "https://agro-report-hub.preview.emergentagent.com/api"
+PASSWORD = "Passw0rd!"
 
-class CRMTester:
+class Colors:
+    GREEN = '\033[92m'
+    RED = '\033[91m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    END = '\033[0m'
+
+class TestRunner:
     def __init__(self):
         self.tests_run = 0
         self.tests_passed = 0
+        self.tests_failed = 0
         self.tokens = {}
-        self.created_ids = {}
-        
-    def log(self, msg, level="INFO"):
-        print(f"[{level}] {msg}")
-    
-    def test(self, name, method, endpoint, expected_status, data=None, token=None, params=None):
-        """Run a single API test."""
-        url = f"{BASE_URL}/{endpoint}"
+        self.test_data = {}
+
+    def log(self, msg, color=Colors.BLUE):
+        print(f"{color}{msg}{Colors.END}")
+
+    def login(self, email):
+        """Login and store token."""
+        try:
+            resp = requests.post(f"{BASE_URL}/auth/login", json={"email": email, "password": PASSWORD}, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                self.tokens[email] = data.get('session_token')
+                self.log(f"✓ Logged in as {email}", Colors.GREEN)
+                return True
+            else:
+                self.log(f"✗ Login failed for {email}: {resp.status_code}", Colors.RED)
+                return False
+        except Exception as e:
+            self.log(f"✗ Login error for {email}: {e}", Colors.RED)
+            return False
+
+    def test(self, name, method, endpoint, expected_status, token=None, json_data=None, params=None, check_response=None):
+        """Run a single test."""
+        self.tests_run += 1
+        url = f"{BASE_URL}{endpoint}"
         headers = {'Content-Type': 'application/json'}
         if token:
             headers['Authorization'] = f'Bearer {token}'
-        
-        self.tests_run += 1
-        self.log(f"Testing {name}...")
-        
+
         try:
             if method == 'GET':
-                response = requests.get(url, headers=headers, params=params, timeout=10)
+                resp = requests.get(url, headers=headers, params=params, timeout=15)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=headers, timeout=10)
+                resp = requests.post(url, headers=headers, json=json_data, timeout=15)
             elif method == 'PATCH':
-                response = requests.patch(url, json=data, headers=headers, timeout=10)
+                resp = requests.patch(url, headers=headers, json=json_data, timeout=15)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=headers, timeout=10)
+                resp = requests.delete(url, headers=headers, timeout=15)
             else:
-                self.log(f"❌ Unknown method {method}", "ERROR")
-                return False, {}
-            
-            success = response.status_code == expected_status
+                raise ValueError(f"Unsupported method: {method}")
+
+            success = resp.status_code == expected_status
             if success:
+                # Additional response checks
+                if check_response and resp.status_code < 400:
+                    try:
+                        data = resp.json()
+                        if not check_response(data):
+                            success = False
+                            self.log(f"  ✗ {name} - Response check failed", Colors.RED)
+                            self.tests_failed += 1
+                            return False, None
+                    except:
+                        pass
+
                 self.tests_passed += 1
-                self.log(f"✅ PASSED - {name} (Status: {response.status_code})")
+                self.log(f"  ✓ {name} - {resp.status_code}", Colors.GREEN)
+                return True, resp.json() if resp.status_code < 400 and resp.text else None
             else:
-                self.log(f"❌ FAILED - {name} - Expected {expected_status}, got {response.status_code}", "ERROR")
-                try:
-                    self.log(f"   Response: {response.text[:200]}", "ERROR")
-                except:
-                    pass
-            
-            try:
-                return success, response.json() if response.text else {}
-            except:
-                return success, {}
-        
+                self.tests_failed += 1
+                self.log(f"  ✗ {name} - Expected {expected_status}, got {resp.status_code}", Colors.RED)
+                if resp.text:
+                    self.log(f"    Response: {resp.text[:200]}", Colors.YELLOW)
+                return False, None
+
         except Exception as e:
-            self.log(f"❌ FAILED - {name} - Exception: {str(e)}", "ERROR")
-            return False, {}
-    
-    def test_auth(self):
-        """Test authentication for all 5 roles."""
-        self.log("\n=== TESTING AUTHENTICATION ===", "INFO")
-        
-        test_users = [
-            ('owner@rexbotanix.com', 'owner'),
-            ('admin@rexbotanix.com', 'admin'),
-            ('manager@rexbotanix.com', 'manager'),
-            ('rep@rexbotanix.com', 'sales_rep'),
-            ('dealer@rexbotanix.com', 'dealer'),
-        ]
-        
-        for email, expected_role in test_users:
-            success, resp = self.test(
-                f"Login as {expected_role}",
-                "POST",
-                "auth/login",
-                200,
-                data={"email": email, "password": "Passw0rd!"}
-            )
-            if success and 'session_token' in resp and 'user' in resp:
-                self.tokens[expected_role] = resp['session_token']
-                if resp['user'].get('role') == expected_role:
-                    self.log(f"   ✓ Role verified: {expected_role}")
-                else:
-                    self.log(f"   ✗ Role mismatch: expected {expected_role}, got {resp['user'].get('role')}", "ERROR")
-            else:
-                self.log(f"   ✗ Login failed for {expected_role}", "ERROR")
-        
-        # Test /me endpoint
-        if 'admin' in self.tokens:
-            success, resp = self.test(
-                "GET /auth/me",
-                "GET",
-                "auth/me",
-                200,
-                token=self.tokens['admin']
-            )
-            if success and resp.get('email') == 'admin@rexbotanix.com':
-                self.log("   ✓ /auth/me returns correct user")
-        
-        # Test logout
-        if 'sales_rep' in self.tokens:
-            success, _ = self.test(
-                "POST /auth/logout",
-                "POST",
-                "auth/logout",
-                200,
-                token=self.tokens['sales_rep']
-            )
-            # Re-login for further tests
-            success, resp = self.test(
-                "Re-login as sales_rep",
-                "POST",
-                "auth/login",
-                200,
-                data={"email": "rep@rexbotanix.com", "password": "Passw0rd!"}
-            )
-            if success:
-                self.tokens['sales_rep'] = resp['session_token']
-    
-    def test_dealers(self):
-        """Test dealer CRUD and RBAC."""
-        self.log("\n=== TESTING DEALERS ===", "INFO")
-        
-        # List dealers as admin
-        success, dealers = self.test(
-            "List dealers (admin)",
-            "GET",
-            "dealers",
-            200,
-            token=self.tokens.get('admin')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(dealers)} dealers")
-        
-        # Create dealer as sales_rep
-        dealer_data = {
-            "firm_name": "Test Agro Store",
-            "contact_name": "Test Contact",
-            "phone": "+91 98000 99999",
-            "email": "testdealer@example.com",
-            "city": "Mumbai",
-            "state": "Maharashtra",
-            "status": "active",
-            "crop_types": ["Cotton", "Wheat"],
-            "create_login": False
-        }
-        success, resp = self.test(
-            "Create dealer (sales_rep)",
-            "POST",
-            "dealers",
-            200,
-            data=dealer_data,
-            token=self.tokens.get('sales_rep')
-        )
-        if success and 'dealer_id' in resp:
-            self.created_ids['dealer'] = resp['dealer_id']
-            self.log(f"   ✓ Created dealer: {resp['dealer_id']}")
-        
-        # Get dealer by ID
-        if 'dealer' in self.created_ids:
-            success, _ = self.test(
-                "Get dealer by ID",
-                "GET",
-                f"dealers/{self.created_ids['dealer']}",
-                200,
-                token=self.tokens.get('sales_rep')
-            )
-        
-        # Update dealer
-        if 'dealer' in self.created_ids:
-            update_data = {**dealer_data, "status": "inactive"}
-            success, _ = self.test(
-                "Update dealer",
-                "PATCH",
-                f"dealers/{self.created_ids['dealer']}",
-                200,
-                data=update_data,
-                token=self.tokens.get('admin')
-            )
-        
-        # Test RBAC: dealer role should only see their own
-        success, dealer_list = self.test(
-            "List dealers (dealer role)",
-            "GET",
-            "dealers",
-            200,
-            token=self.tokens.get('dealer')
-        )
-        if success:
-            self.log(f"   ✓ Dealer sees {len(dealer_list)} dealer(s)")
-        
-        # Delete dealer (admin only)
-        if 'dealer' in self.created_ids:
-            success, _ = self.test(
-                "Delete dealer (admin)",
-                "DELETE",
-                f"dealers/{self.created_ids['dealer']}",
-                200,
-                token=self.tokens.get('admin')
-            )
-    
-    def test_products(self):
-        """Test product CRUD (admin-only create/update/delete)."""
-        self.log("\n=== TESTING PRODUCTS ===", "INFO")
-        
-        # List products (all roles)
-        success, products = self.test(
-            "List products (sales_rep)",
-            "GET",
-            "products",
-            200,
-            token=self.tokens.get('sales_rep')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(products)} products")
-        
-        # Create product (admin only)
-        product_data = {
-            "name": "Test Fertilizer XYZ",
-            "sku": "TEST-XYZ-001",
-            "category": "Test Category",
-            "unit": "Bag",
-            "pack_size": "50kg",
-            "mrp": 1500.0
-        }
-        success, resp = self.test(
-            "Create product (admin)",
-            "POST",
-            "products",
-            200,
-            data=product_data,
-            token=self.tokens.get('admin')
-        )
-        if success and 'product_id' in resp:
-            self.created_ids['product'] = resp['product_id']
-            self.log(f"   ✓ Created product: {resp['product_id']}")
-        
-        # Try create as sales_rep (should fail)
-        success, _ = self.test(
-            "Create product (sales_rep - should fail)",
-            "POST",
-            "products",
-            403,
-            data=product_data,
-            token=self.tokens.get('sales_rep')
-        )
-        
-        # Update product
-        if 'product' in self.created_ids:
-            update_data = {**product_data, "mrp": 1600.0}
-            success, _ = self.test(
-                "Update product (admin)",
-                "PATCH",
-                f"products/{self.created_ids['product']}",
-                200,
-                data=update_data,
-                token=self.tokens.get('admin')
-            )
-        
-        # Delete product
-        if 'product' in self.created_ids:
-            success, _ = self.test(
-                "Delete product (admin)",
-                "DELETE",
-                f"products/{self.created_ids['product']}",
-                200,
-                token=self.tokens.get('admin')
-            )
-    
-    def test_teams(self):
-        """Test team CRUD (admin-only)."""
-        self.log("\n=== TESTING TEAMS ===", "INFO")
-        
-        # List teams
-        success, teams = self.test(
-            "List teams (admin)",
-            "GET",
-            "teams",
-            200,
-            token=self.tokens.get('admin')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(teams)} team(s)")
-        
-        # Create team
-        team_data = {
-            "name": "Test Sales Team",
-            "description": "Test team for automation",
-            "manager_id": None,
-            "member_ids": []
-        }
-        success, resp = self.test(
-            "Create team (admin)",
-            "POST",
-            "teams",
-            200,
-            data=team_data,
-            token=self.tokens.get('admin')
-        )
-        if success and 'team_id' in resp:
-            self.created_ids['team'] = resp['team_id']
-            self.log(f"   ✓ Created team: {resp['team_id']}")
-        
-        # Add members to team
-        if 'team' in self.created_ids:
-            # Get a user ID first
-            success, users = self.test(
-                "List users to get member ID",
-                "GET",
-                "users",
-                200,
-                token=self.tokens.get('admin')
-            )
-            if success and len(users) > 0:
-                member_id = users[0].get('user_id')
-                success, _ = self.test(
-                    "Add member to team",
-                    "POST",
-                    f"teams/{self.created_ids['team']}/members",
-                    200,
-                    data={"member_ids": [member_id]},
-                    token=self.tokens.get('admin')
-                )
-        
-        # Delete team
-        if 'team' in self.created_ids:
-            success, _ = self.test(
-                "Delete team (admin)",
-                "DELETE",
-                f"teams/{self.created_ids['team']}",
-                200,
-                token=self.tokens.get('admin')
-            )
-    
-    def test_reports(self):
-        """Test report creation with all 7 types and attachments."""
-        self.log("\n=== TESTING REPORTS ===", "INFO")
-        
-        report_types = [
-            'sales_requirement',
-            'sales_enquiry',
-            'product_enquiry',
-            'field_report',
-            'farm_visit',
-            'dealer_visit',
-            'area_status'
-        ]
-        
-        # Create a report for each type
-        for report_type in report_types:
-            report_data = {
-                "type": report_type,
-                "title": f"Test {report_type.replace('_', ' ').title()}",
-                "summary": f"Test summary for {report_type}",
-                "location": "Test Location",
-                "notes": "Test notes",
-                "attachments": [
-                    {
-                        "filename": "test.jpg",
-                        "mime": "image/jpeg",
-                        "data_base64": "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
-                        "size": 1024
-                    }
-                ]
-            }
-            success, resp = self.test(
-                f"Create {report_type} report",
-                "POST",
-                "reports",
-                200,
-                data=report_data,
-                token=self.tokens.get('sales_rep')
-            )
-            if success and 'report_id' in resp:
-                if report_type == 'farm_visit':
-                    self.created_ids['report'] = resp['report_id']
-                self.log(f"   ✓ Created {report_type}: {resp['report_id']}")
-        
-        # List reports
-        success, reports = self.test(
-            "List reports (sales_rep)",
-            "GET",
-            "reports",
-            200,
-            token=self.tokens.get('sales_rep')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(reports)} report(s)")
-        
-        # List with type filter
-        success, filtered = self.test(
-            "List reports with type filter",
-            "GET",
-            "reports",
-            200,
-            params={"type": "farm_visit"},
-            token=self.tokens.get('sales_rep')
-        )
-        if success:
-            self.log(f"   ✓ Filtered reports: {len(filtered)}")
-        
-        # Get report by ID
-        if 'report' in self.created_ids:
-            success, report = self.test(
-                "Get report by ID",
-                "GET",
-                f"reports/{self.created_ids['report']}",
-                200,
-                token=self.tokens.get('sales_rep')
-            )
-            if success and 'attachments' in report:
-                self.log(f"   ✓ Report has {len(report['attachments'])} attachment(s)")
-        
-        # Test RBAC: admin sees all
-        success, admin_reports = self.test(
-            "List reports (admin - sees all)",
-            "GET",
-            "reports",
-            200,
-            token=self.tokens.get('admin')
-        )
-        if success:
-            self.log(f"   ✓ Admin sees {len(admin_reports)} report(s)")
-        
-        # Delete report
-        if 'report' in self.created_ids:
-            success, _ = self.test(
-                "Delete report",
-                "DELETE",
-                f"reports/{self.created_ids['report']}",
-                200,
-                token=self.tokens.get('sales_rep')
-            )
-    
-    def test_requests(self):
-        """Test request creation and approval flow."""
-        self.log("\n=== TESTING REQUESTS & APPROVALS ===", "INFO")
-        
-        # Create expense request
-        expense_data = {
-            "type": "expense",
-            "title": "Test Expense Claim",
-            "description": "Travel and food expenses",
-            "amount": 2500.0,
-            "attachments": []
-        }
-        success, resp = self.test(
-            "Create expense request",
-            "POST",
-            "requests",
-            200,
-            data=expense_data,
-            token=self.tokens.get('sales_rep')
-        )
-        if success and 'request_id' in resp:
-            self.created_ids['expense_request'] = resp['request_id']
-            self.log(f"   ✓ Created expense request: {resp['request_id']}")
-        
-        # Create leave request
-        leave_data = {
-            "type": "leave",
-            "title": "Test Leave Request",
-            "description": "Personal leave",
-            "start_date": "2025-09-01",
-            "end_date": "2025-09-03",
-            "attachments": []
-        }
-        success, resp = self.test(
-            "Create leave request",
-            "POST",
-            "requests",
-            200,
-            data=leave_data,
-            token=self.tokens.get('sales_rep')
-        )
-        if success and 'request_id' in resp:
-            self.created_ids['leave_request'] = resp['request_id']
-            self.log(f"   ✓ Created leave request: {resp['request_id']}")
-        
-        # Create travel request
-        travel_data = {
-            "type": "travel",
-            "title": "Test Travel Request",
-            "description": "Client visit",
-            "destination": "Nashik",
-            "mode": "Car",
-            "start_date": "2025-09-10",
-            "attachments": []
-        }
-        success, resp = self.test(
-            "Create travel request",
-            "POST",
-            "requests",
-            200,
-            data=travel_data,
-            token=self.tokens.get('sales_rep')
-        )
-        if success and 'request_id' in resp:
-            self.created_ids['travel_request'] = resp['request_id']
-            self.log(f"   ✓ Created travel request: {resp['request_id']}")
-        
-        # List requests
-        success, requests = self.test(
-            "List requests (sales_rep)",
-            "GET",
-            "requests",
-            200,
-            token=self.tokens.get('sales_rep')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(requests)} request(s)")
-        
-        # Approve request (as admin)
-        if 'expense_request' in self.created_ids:
-            success, resp = self.test(
-                "Approve expense request (admin)",
-                "POST",
-                f"requests/{self.created_ids['expense_request']}/action",
-                200,
-                data={"action": "approve", "note": "Approved for testing"},
-                token=self.tokens.get('admin')
-            )
-            if success and resp.get('status') == 'approved':
-                self.log("   ✓ Request approved successfully")
-        
-        # Reject request (as manager)
-        if 'leave_request' in self.created_ids:
-            success, resp = self.test(
-                "Reject leave request (manager)",
-                "POST",
-                f"requests/{self.created_ids['leave_request']}/action",
-                200,
-                data={"action": "reject", "note": "Not approved for testing"},
-                token=self.tokens.get('manager')
-            )
-            if success and resp.get('status') == 'rejected':
-                self.log("   ✓ Request rejected successfully")
-    
-    def test_messaging(self):
-        """Test messaging threads and messages with polling."""
-        self.log("\n=== TESTING MESSAGING ===", "INFO")
-        
-        # Get user IDs for participants
-        success, users = self.test(
-            "List users for messaging",
-            "GET",
-            "users",
-            200,
-            token=self.tokens.get('admin')
-        )
-        
-        participant_ids = []
-        if success and len(users) >= 2:
-            participant_ids = [users[0]['user_id'], users[1]['user_id']]
-        
-        # Create thread
-        if len(participant_ids) >= 2:
-            thread_data = {
-                "name": "Test Thread",
-                "participant_ids": participant_ids,
-                "topic": "Testing messaging"
-            }
-            success, resp = self.test(
-                "Create messaging thread",
-                "POST",
-                "messaging/threads",
-                200,
-                data=thread_data,
-                token=self.tokens.get('admin')
-            )
-            if success and 'thread_id' in resp:
-                self.created_ids['thread'] = resp['thread_id']
-                self.log(f"   ✓ Created thread: {resp['thread_id']}")
-        
-        # List threads
-        success, threads = self.test(
-            "List messaging threads",
-            "GET",
-            "messaging/threads",
-            200,
-            token=self.tokens.get('admin')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(threads)} thread(s)")
-        
-        # Send message
-        if 'thread' in self.created_ids:
-            message_data = {
-                "thread_id": self.created_ids['thread'],
-                "text": "Test message content",
-                "attachments": []
-            }
-            success, resp = self.test(
-                "Send message",
-                "POST",
-                "messaging/messages",
-                200,
-                data=message_data,
-                token=self.tokens.get('admin')
-            )
-            if success and 'message_id' in resp:
-                self.log(f"   ✓ Sent message: {resp['message_id']}")
-        
-        # List messages (polling support)
-        if 'thread' in self.created_ids:
-            success, messages = self.test(
-                "List messages in thread",
-                "GET",
-                f"messaging/threads/{self.created_ids['thread']}/messages",
-                200,
-                token=self.tokens.get('admin')
-            )
-            if success:
-                self.log(f"   ✓ Found {len(messages)} message(s)")
-            
-            # Test polling with ?after parameter
-            if len(messages) > 0:
-                last_msg_time = messages[-1].get('created_at', '')
-                success, new_msgs = self.test(
-                    "Poll for new messages",
-                    "GET",
-                    f"messaging/threads/{self.created_ids['thread']}/messages",
-                    200,
-                    params={"after": last_msg_time},
-                    token=self.tokens.get('admin')
-                )
-                if success:
-                    self.log(f"   ✓ Polling returned {len(new_msgs)} new message(s)")
-    
-    def test_notifications(self):
-        """Test notifications list/read/mark-all-read."""
-        self.log("\n=== TESTING NOTIFICATIONS ===", "INFO")
-        
-        # List notifications
-        success, notifs = self.test(
-            "List notifications",
-            "GET",
-            "notifications",
-            200,
-            token=self.tokens.get('sales_rep')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(notifs)} notification(s)")
-            unread = [n for n in notifs if not n.get('read')]
-            self.log(f"   ✓ Unread: {len(unread)}")
-        
-        # Mark notification as read
-        if success and len(notifs) > 0:
-            notif_id = notifs[0].get('notification_id')
-            if notif_id:
-                success, _ = self.test(
-                    "Mark notification as read",
-                    "POST",
-                    f"notifications/{notif_id}/read",
-                    200,
-                    token=self.tokens.get('sales_rep')
-                )
-        
-        # Mark all as read
-        success, _ = self.test(
-            "Mark all notifications as read",
-            "POST",
-            "notifications/read-all",
-            200,
-            token=self.tokens.get('sales_rep')
-        )
-    
-    def test_dashboard(self):
-        """Test dashboard summary with role-based KPIs."""
-        self.log("\n=== TESTING DASHBOARD ===", "INFO")
-        
-        # Test dashboard for each role
-        roles = ['owner', 'admin', 'manager', 'sales_rep', 'dealer']
-        for role in roles:
-            if role in self.tokens:
-                success, summary = self.test(
-                    f"Dashboard summary ({role})",
-                    "GET",
-                    "dashboard/summary",
-                    200,
-                    token=self.tokens[role]
-                )
-                if success:
-                    kpis = summary.get('kpis', {})
-                    self.log(f"   ✓ {role} dashboard: {len(kpis)} KPIs")
-                    if role in ('owner', 'admin'):
-                        if 'top_reps' in summary:
-                            self.log(f"   ✓ Top reps data present")
-                        if 'team_breakdown' in summary:
-                            self.log(f"   ✓ Team breakdown present")
-    
-    def test_users(self):
-        """Test user CRUD (admin/owner only)."""
-        self.log("\n=== TESTING USERS ===", "INFO")
-        
-        # List users
-        success, users = self.test(
-            "List users (admin)",
-            "GET",
-            "users",
-            200,
-            token=self.tokens.get('admin')
-        )
-        if success:
-            self.log(f"   ✓ Found {len(users)} user(s)")
-        
-        # Create user
-        user_data = {
-            "email": "testuser@rexbotanix.com",
-            "name": "Test User",
-            "role": "sales_rep",
-            "password": "TestPass123!",
-            "phone": "+91 98000 88888",
-            "area": "Test Area"
-        }
-        success, resp = self.test(
-            "Create user (admin)",
-            "POST",
-            "users",
-            200,
-            data=user_data,
-            token=self.tokens.get('admin')
-        )
-        if success and 'user_id' in resp:
-            self.created_ids['user'] = resp['user_id']
-            self.log(f"   ✓ Created user: {resp['user_id']}")
-        
-        # Update user
-        if 'user' in self.created_ids:
-            update_data = {
-                "name": "Updated Test User",
-                "area": "Updated Area"
-            }
-            success, _ = self.test(
-                "Update user (admin)",
-                "PATCH",
-                f"users/{self.created_ids['user']}",
-                200,
-                data=update_data,
-                token=self.tokens.get('admin')
-            )
-        
-        # Delete user
-        if 'user' in self.created_ids:
-            success, _ = self.test(
-                "Delete user (admin)",
-                "DELETE",
-                f"users/{self.created_ids['user']}",
-                200,
-                token=self.tokens.get('admin')
-            )
-        
-        # Test RBAC: sales_rep cannot access users
-        success, _ = self.test(
-            "List users (sales_rep - should fail)",
-            "GET",
-            "users",
-            403,
-            token=self.tokens.get('sales_rep')
-        )
-    
+            self.tests_failed += 1
+            self.log(f"  ✗ {name} - Error: {e}", Colors.RED)
+            return False, None
+
     def run_all_tests(self):
-        """Run all test suites."""
-        self.log("\n" + "="*60)
-        self.log("REX BOTANIX CRM - BACKEND API TESTING")
-        self.log("="*60)
+        """Execute all Phase 3 tests."""
+        self.log("\n" + "="*80, Colors.BLUE)
+        self.log("REX BOTANIX CRM - PHASE 3 BACKEND TESTS", Colors.BLUE)
+        self.log("="*80 + "\n", Colors.BLUE)
+
+        # Login all users
+        self.log(">>> Logging in test users...", Colors.BLUE)
+        for email in ['owner@rexbotanix.com', 'admin@rexbotanix.com', 'manager@rexbotanix.com', 
+                      'rep@rexbotanix.com', 'dealer@rexbotanix.com']:
+            if not self.login(email):
+                self.log(f"CRITICAL: Cannot login {email}, aborting tests", Colors.RED)
+                return False
+
+        # Test 1: Granular Permissions
+        self.log("\n>>> TEST GROUP 1: Granular Permissions", Colors.BLUE)
         
-        try:
-            self.test_auth()
-            self.test_dealers()
-            self.test_products()
-            self.test_teams()
-            self.test_reports()
-            self.test_requests()
-            self.test_messaging()
-            self.test_notifications()
-            self.test_dashboard()
-            self.test_users()
-        except Exception as e:
-            self.log(f"Test suite error: {str(e)}", "ERROR")
-        
-        self.log("\n" + "="*60)
-        self.log(f"RESULTS: {self.tests_passed}/{self.tests_run} tests passed")
-        self.log("="*60)
-        
-        return 0 if self.tests_passed == self.tests_run else 1
+        # Sales rep cannot create product
+        self.test(
+            "Sales rep CANNOT create product (403)",
+            "POST", "/products",
+            403,
+            token=self.tokens['rep@rexbotanix.com'],
+            json_data={"name": "Test Product", "sku": "TEST-001", "category": "Test"}
+        )
+
+        # Manager cannot create user
+        self.test(
+            "Manager CANNOT create user (403)",
+            "POST", "/users",
+            403,
+            token=self.tokens['manager@rexbotanix.com'],
+            json_data={"email": "test@test.com", "name": "Test User", "role": "sales_rep"}
+        )
+
+        # Manager cannot create product
+        self.test(
+            "Manager CANNOT create product (403)",
+            "POST", "/products",
+            403,
+            token=self.tokens['manager@rexbotanix.com'],
+            json_data={"name": "Test Product", "sku": "TEST-002", "category": "Test"}
+        )
+
+        # Manager cannot create territory
+        self.test(
+            "Manager CANNOT create territory (403)",
+            "POST", "/territories",
+            403,
+            token=self.tokens['manager@rexbotanix.com'],
+            json_data={"name": "Test Territory", "code": "TEST"}
+        )
+
+        # Admin CAN create user
+        success, user_data = self.test(
+            "Admin CAN create user (201)",
+            "POST", "/users",
+            201,
+            token=self.tokens['admin@rexbotanix.com'],
+            json_data={"email": f"testuser_{int(time.time())}@test.com", "name": "Test User", "role": "sales_rep", "password": "Test123!"}
+        )
+        if success and user_data:
+            self.test_data['created_user_id'] = user_data.get('user_id')
+
+        # Admin CAN create product
+        success, product_data = self.test(
+            "Admin CAN create product (201)",
+            "POST", "/products",
+            201,
+            token=self.tokens['admin@rexbotanix.com'],
+            json_data={"name": f"Test Product {int(time.time())}", "sku": f"TEST-{int(time.time())}", "category": "Test"}
+        )
+        if success and product_data:
+            self.test_data['created_product_id'] = product_data.get('product_id')
+
+        # Admin CAN create territory
+        success, territory_data = self.test(
+            "Admin CAN create territory (201)",
+            "POST", "/territories",
+            201,
+            token=self.tokens['admin@rexbotanix.com'],
+            json_data={
+                "name": f"Test Territory {int(time.time())}",
+                "code": f"TEST-{int(time.time())}",
+                "region": "Test",
+                "state": "Test State",
+                "districts": ["Test District"]
+            }
+        )
+        if success and territory_data:
+            self.test_data['created_territory_id'] = territory_data.get('territory_id')
+
+        # Owner has god mode - can create anything
+        self.test(
+            "Owner CAN create product (god mode)",
+            "POST", "/products",
+            201,
+            token=self.tokens['owner@rexbotanix.com'],
+            json_data={"name": f"Owner Product {int(time.time())}", "sku": f"OWN-{int(time.time())}", "category": "Test"}
+        )
+
+        # Dealer cannot create farm_visit
+        self.test(
+            "Dealer CANNOT create farm_visit (403)",
+            "POST", "/reports",
+            403,
+            token=self.tokens['dealer@rexbotanix.com'],
+            json_data={"type": "farm_visit", "title": "Test Farm Visit"}
+        )
+
+        # Dealer CAN create product_enquiry
+        success, enquiry_data = self.test(
+            "Dealer CAN create product_enquiry (201)",
+            "POST", "/reports",
+            201,
+            token=self.tokens['dealer@rexbotanix.com'],
+            json_data={"type": "product_enquiry", "title": "Test Product Enquiry", "summary": "Need info on NPK"}
+        )
+        if success and enquiry_data:
+            self.test_data['dealer_enquiry_id'] = enquiry_data.get('report_id')
+
+        # Test 2: Territories API
+        self.log("\n>>> TEST GROUP 2: Territories API", Colors.BLUE)
+
+        # All roles can GET territories
+        for role, email in [('owner', 'owner@rexbotanix.com'), ('admin', 'admin@rexbotanix.com'),
+                            ('manager', 'manager@rexbotanix.com'), ('rep', 'rep@rexbotanix.com'),
+                            ('dealer', 'dealer@rexbotanix.com')]:
+            success, territories = self.test(
+                f"{role.capitalize()} can GET territories",
+                "GET", "/territories",
+                200,
+                token=self.tokens[email],
+                check_response=lambda d: isinstance(d, list) and len(d) >= 2
+            )
+            if success and territories and role == 'owner':
+                self.log(f"    Found {len(territories)} territories (expected >= 2)", Colors.GREEN)
+
+        # Only owner/admin can POST territory (already tested above)
+        # Test PATCH territory
+        if 'created_territory_id' in self.test_data:
+            self.test(
+                "Admin CAN update territory (200)",
+                "PATCH", f"/territories/{self.test_data['created_territory_id']}",
+                200,
+                token=self.tokens['admin@rexbotanix.com'],
+                json_data={"name": "Updated Territory", "code": "UPD", "region": "Updated"}
+            )
+
+        # Test 3: Reports with new fields (territory_id, geo, due_at)
+        self.log("\n>>> TEST GROUP 3: Reports with Territory, Geo, and SLA fields", Colors.BLUE)
+
+        # Create report with territory_id and geo
+        now = datetime.now(timezone.utc)
+        past_due = (now - timedelta(hours=2)).isoformat()
+        future_due = (now + timedelta(days=3)).isoformat()
+
+        success, report_with_geo = self.test(
+            "Create report with territory_id and geo",
+            "POST", "/reports",
+            201,
+            token=self.tokens['rep@rexbotanix.com'],
+            json_data={
+                "type": "farm_visit",
+                "title": "Test Farm Visit with Geo",
+                "summary": "Testing geo-tagging",
+                "territory_id": self.test_data.get('created_territory_id', 'tty_test'),
+                "geo": {
+                    "lat": 18.5204,
+                    "lng": 73.8567,
+                    "accuracy_m": 10.5,
+                    "captured_at": now.isoformat()
+                },
+                "farmer_name": "Test Farmer",
+                "crop": "Grapes"
+            }
+        )
+        if success and report_with_geo:
+            self.test_data['report_with_geo_id'] = report_with_geo.get('report_id')
+
+        # Create overdue report (due_at in the past)
+        success, overdue_report = self.test(
+            "Create report with past due_at (overdue)",
+            "POST", "/reports",
+            201,
+            token=self.tokens['rep@rexbotanix.com'],
+            json_data={
+                "type": "sales_enquiry",
+                "title": "Overdue Sales Enquiry",
+                "summary": "This should be overdue",
+                "due_at": past_due
+            }
+        )
+        if success and overdue_report:
+            self.test_data['overdue_report_id'] = overdue_report.get('report_id')
+
+        # Create upcoming report (due in 3 days)
+        success, upcoming_report = self.test(
+            "Create report with future due_at (upcoming)",
+            "POST", "/reports",
+            201,
+            token=self.tokens['rep@rexbotanix.com'],
+            json_data={
+                "type": "field_report",
+                "title": "Upcoming Field Report",
+                "summary": "Due in 3 days",
+                "due_at": future_due
+            }
+        )
+        if success and upcoming_report:
+            self.test_data['upcoming_report_id'] = upcoming_report.get('report_id')
+
+        # Test GET reports with overdue filter
+        success, overdue_list = self.test(
+            "GET reports with ?overdue=true filter",
+            "GET", "/reports",
+            200,
+            token=self.tokens['rep@rexbotanix.com'],
+            params={"overdue": "true"},
+            check_response=lambda d: isinstance(d, list)
+        )
+        if success and overdue_list:
+            self.log(f"    Found {len(overdue_list)} overdue report(s)", Colors.GREEN)
+
+        # Test 4: SLA Endpoints
+        self.log("\n>>> TEST GROUP 4: SLA Endpoints", Colors.BLUE)
+
+        # GET /sla/overdue
+        success, sla_overdue = self.test(
+            "GET /sla/overdue",
+            "GET", "/sla/overdue",
+            200,
+            token=self.tokens['rep@rexbotanix.com'],
+            check_response=lambda d: isinstance(d, list)
+        )
+        if success and sla_overdue:
+            self.log(f"    Found {len(sla_overdue)} overdue report(s) in SLA endpoint", Colors.GREEN)
+
+        # GET /sla/upcoming?days=7
+        success, sla_upcoming = self.test(
+            "GET /sla/upcoming?days=7",
+            "GET", "/sla/upcoming",
+            200,
+            token=self.tokens['rep@rexbotanix.com'],
+            params={"days": 7},
+            check_response=lambda d: isinstance(d, list)
+        )
+        if success and sla_upcoming:
+            self.log(f"    Found {len(sla_upcoming)} upcoming report(s) due in 7 days", Colors.GREEN)
+
+        # POST /sla/sweep (admin can trigger)
+        success, sweep_result = self.test(
+            "POST /sla/sweep (trigger overdue notifications)",
+            "POST", "/sla/sweep",
+            200,
+            token=self.tokens['admin@rexbotanix.com'],
+            check_response=lambda d: 'notified' in d
+        )
+        if success and sweep_result:
+            self.log(f"    Notified {sweep_result.get('notified', 0)} recipient(s)", Colors.GREEN)
+
+        # POST /reports/{id}/resolve
+        if 'overdue_report_id' in self.test_data:
+            success, resolved = self.test(
+                "POST /reports/{id}/resolve - mark report resolved",
+                "POST", f"/reports/{self.test_data['overdue_report_id']}/resolve",
+                200,
+                token=self.tokens['rep@rexbotanix.com'],
+                json_data={"resolved": True, "note": "Issue resolved"}
+            )
+            if success and resolved:
+                # Verify it's no longer in overdue list
+                success2, overdue_after = self.test(
+                    "Verify resolved report not in /sla/overdue",
+                    "GET", "/sla/overdue",
+                    200,
+                    token=self.tokens['rep@rexbotanix.com'],
+                    check_response=lambda d: self.test_data['overdue_report_id'] not in [r.get('report_id') for r in d]
+                )
+
+        # Test 5: Audit Log
+        self.log("\n>>> TEST GROUP 5: Audit Log", Colors.BLUE)
+
+        # Owner can access audit log
+        success, audit_entries = self.test(
+            "Owner CAN access /audit",
+            "GET", "/audit",
+            200,
+            token=self.tokens['owner@rexbotanix.com'],
+            check_response=lambda d: isinstance(d, list) and len(d) > 0
+        )
+        if success and audit_entries:
+            self.log(f"    Found {len(audit_entries)} audit entries", Colors.GREEN)
+            # Check for expected fields
+            if audit_entries:
+                entry = audit_entries[0]
+                has_fields = all(k in entry for k in ['audit_id', 'actor_name', 'action', 'entity_type', 'created_at'])
+                if has_fields:
+                    self.log(f"    ✓ Audit entries have required fields", Colors.GREEN)
+                else:
+                    self.log(f"    ✗ Audit entries missing required fields", Colors.RED)
+
+        # Admin can access audit log
+        self.test(
+            "Admin CAN access /audit",
+            "GET", "/audit",
+            200,
+            token=self.tokens['admin@rexbotanix.com'],
+            check_response=lambda d: isinstance(d, list)
+        )
+
+        # Manager CANNOT access audit log
+        self.test(
+            "Manager CANNOT access /audit (403)",
+            "GET", "/audit",
+            403,
+            token=self.tokens['manager@rexbotanix.com']
+        )
+
+        # Test audit filters
+        self.test(
+            "GET /audit with entity_type filter",
+            "GET", "/audit",
+            200,
+            token=self.tokens['owner@rexbotanix.com'],
+            params={"entity_type": "report"},
+            check_response=lambda d: isinstance(d, list)
+        )
+
+        self.test(
+            "GET /audit with action filter",
+            "GET", "/audit",
+            200,
+            token=self.tokens['admin@rexbotanix.com'],
+            params={"action": "create"},
+            check_response=lambda d: isinstance(d, list)
+        )
+
+        # Test 6: Export Endpoints
+        self.log("\n>>> TEST GROUP 6: Export Endpoints (CSV/PDF)", Colors.BLUE)
+
+        # Reports CSV export
+        success, _ = self.test(
+            "GET /exports/reports.csv (owner)",
+            "GET", "/exports/reports.csv",
+            200,
+            token=self.tokens['owner@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/reports.csv (admin)",
+            "GET", "/exports/reports.csv",
+            200,
+            token=self.tokens['admin@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/reports.csv (manager)",
+            "GET", "/exports/reports.csv",
+            200,
+            token=self.tokens['manager@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/reports.csv (sales_rep)",
+            "GET", "/exports/reports.csv",
+            200,
+            token=self.tokens['rep@rexbotanix.com']
+        )
+
+        # Reports PDF export
+        success, _ = self.test(
+            "GET /exports/reports.pdf (admin)",
+            "GET", "/exports/reports.pdf",
+            200,
+            token=self.tokens['admin@rexbotanix.com']
+        )
+
+        # Requests CSV export
+        success, _ = self.test(
+            "GET /exports/requests.csv (owner)",
+            "GET", "/exports/requests.csv",
+            200,
+            token=self.tokens['owner@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/requests.csv (admin)",
+            "GET", "/exports/requests.csv",
+            200,
+            token=self.tokens['admin@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/requests.csv (manager)",
+            "GET", "/exports/requests.csv",
+            200,
+            token=self.tokens['manager@rexbotanix.com']
+        )
+
+        # Dashboard PDF export
+        success, _ = self.test(
+            "GET /exports/dashboard.pdf (owner)",
+            "GET", "/exports/dashboard.pdf",
+            200,
+            token=self.tokens['owner@rexbotanix.com']
+        )
+
+        success, _ = self.test(
+            "GET /exports/dashboard.pdf (admin)",
+            "GET", "/exports/dashboard.pdf",
+            200,
+            token=self.tokens['admin@rexbotanix.com']
+        )
+
+        # Dealer CANNOT export dashboard
+        self.test(
+            "Dealer CANNOT access /exports/dashboard.pdf (403)",
+            "GET", "/exports/dashboard.pdf",
+            403,
+            token=self.tokens['dealer@rexbotanix.com']
+        )
+
+        # Sales rep CANNOT export dashboard
+        self.test(
+            "Sales rep CANNOT access /exports/dashboard.pdf (403)",
+            "GET", "/exports/dashboard.pdf",
+            403,
+            token=self.tokens['rep@rexbotanix.com']
+        )
+
+        return True
+
+    def print_summary(self):
+        """Print test summary."""
+        self.log("\n" + "="*80, Colors.BLUE)
+        self.log("TEST SUMMARY", Colors.BLUE)
+        self.log("="*80, Colors.BLUE)
+        self.log(f"Total tests run: {self.tests_run}", Colors.BLUE)
+        self.log(f"Passed: {self.tests_passed}", Colors.GREEN)
+        self.log(f"Failed: {self.tests_failed}", Colors.RED)
+        success_rate = (self.tests_passed / self.tests_run * 100) if self.tests_run > 0 else 0
+        self.log(f"Success rate: {success_rate:.1f}%", Colors.GREEN if success_rate >= 90 else Colors.YELLOW)
+        self.log("="*80 + "\n", Colors.BLUE)
+
+        return self.tests_failed == 0
+
 
 if __name__ == "__main__":
-    tester = CRMTester()
-    sys.exit(tester.run_all_tests())
+    runner = TestRunner()
+    try:
+        runner.run_all_tests()
+        runner.print_summary()
+        sys.exit(0 if runner.tests_failed == 0 else 1)
+    except KeyboardInterrupt:
+        print("\n\nTests interrupted by user")
+        runner.print_summary()
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n\nFATAL ERROR: {e}")
+        runner.print_summary()
+        sys.exit(1)

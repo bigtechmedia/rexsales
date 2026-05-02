@@ -1,38 +1,54 @@
 [
   {
-    "content": "Phase 1: Get Emergent Managed Google Auth integration playbook",
+    "content": "Phase 3: Install backend deps (reportlab for PDF)",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Build minimal auth POC (email/password + Google OAuth + RBAC + seed users)",
+    "content": "Phase 3: Dark-mode toggle (frontend theme provider + header switch)",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Test POC end-to-end (both auth methods + role-based routing)",
+    "content": "Phase 3: Territories/regions collection + CRUD + geo-tagging (backend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Get design guidelines from design_agent",
+    "content": "Phase 3: Territories page + geo capture on New Report (frontend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Build complete backend (models, CRUD, reports, requests, messaging, teams, products, dashboards)",
+    "content": "Phase 3: CSV/PDF export endpoints for reports, requests, dashboard (backend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Build complete frontend (all dashboards, forms, messaging UI, approvals UI, analytics)",
+    "content": "Phase 3: Export buttons on Reports/Requests/Dashboard (frontend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: All user stories covered in Development",
+    "content": "Phase 3: SLA due_at field on reports + overdue detection + auto-notifications (backend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: End to End Testing using Testing Agent (61/61 backend, all frontend flows passed)",
+    "content": "Phase 3: SLA due picker on New Report + Overdue filter/badge (frontend)",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Fix all issues from testing agent (no issues reported)",
+    "content": "Phase 3: Audit log collection + logging middleware + endpoint (backend)",
     "status": "completed"
+  },
+  {
+    "content": "Phase 3: Admin vs Manager granular permissions split (backend RBAC)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: Audit log viewer page (frontend, owner/admin only)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: End-to-end testing via testing_agent_v3",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 3: Fix all issues from testing agent",
+    "status": "pending"
   }
 ]

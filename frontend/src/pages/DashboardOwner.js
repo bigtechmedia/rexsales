@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import api from '@/lib/api';
+import api, { API_BASE } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { KpiCard } from '@/components/KpiCard';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
-import { IndianRupee, Users, ClipboardList, AlertCircle, TrendingUp, Trophy } from 'lucide-react';
+import { IndianRupee, Users, ClipboardList, AlertCircle, TrendingUp, Trophy, Download } from 'lucide-react';
 import { REPORT_TYPES, formatCurrency, formatDate } from '@/lib/utils-crm';
 import { Link } from 'react-router-dom';
+import { toast } from 'sonner';
 
 const gridStroke = 'hsl(var(--border))';
 const c1 = 'hsl(var(--chart-1))';
@@ -27,6 +29,22 @@ export default function DashboardOwner() {
         api.get(`/dashboard/summary?days=${range}`).then(({ data }) => { setData(data); }).finally(() => setLoading(false));
     }, [range]);
 
+    const exportPdf = async () => {
+        try {
+            const url = `${API_BASE}/exports/dashboard.pdf?days=${range}`;
+            const token = localStorage.getItem('rbx_session_token');
+            const res = await fetch(url, { credentials: 'include', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+            if (!res.ok) throw new Error(`Export failed (${res.status})`);
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `rex_botanix_dashboard_${range}d.pdf`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            toast.success('Exported PDF');
+        } catch (e) { toast.error(e.message || 'Export failed'); }
+    };
+
     return (
         <div className="space-y-6" data-testid="owner-dashboard">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -35,7 +53,8 @@ export default function DashboardOwner() {
                     <p className="text-sm text-muted-foreground">Company-wide performance across teams, dealers and regions.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Timeframe</span>
+                    <Button variant="outline" onClick={exportPdf} data-testid="dashboard-export-pdf"><Download className="h-4 w-4 mr-2" /> Export PDF</Button>
+                    <span className="text-xs text-muted-foreground hidden md:inline">Timeframe</span>
                     <Select value={range} onValueChange={setRange}>
                         <SelectTrigger className="w-36 rounded-xl" data-testid="dashboard-timeframe-select"><SelectValue /></SelectTrigger>
                         <SelectContent>

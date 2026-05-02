@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import requests_col, notifications as notif_col, users as users_col, teams
 from auth import require_roles
+from permissions import require_permission
 from models import RequestIn, ApprovalAction
+from audit import record as audit_record
 
 router = APIRouter(prefix='/requests', tags=['requests'])
 
@@ -18,7 +20,6 @@ def _visible_query(user):
     if role == 'manager':
         team_ids = user.get('team_ids', [])
         return {'$or': [{'author_team_ids': {'$in': team_ids}}, {'author_id': user['user_id']}]}
-    # reps/dealers: own requests only
     return {'author_id': user['user_id']}
 
 
@@ -62,44 +63,37 @@ async def create_request(payload: RequestIn, user=Depends(require_roles('owner',
     await requests_col.insert_one(doc)
     doc.pop('_id', None)
 
-    # Notify managers of all teams rep belongs to
     team_ids = user.get('team_ids', [])
+    notified = set()
     if team_ids:
         async for t in teams.find({'team_id': {'$in': team_ids}}, {'_id': 0, 'manager_id': 1}):
             mid = t.get('manager_id')
             if mid and mid != user['user_id']:
-                await notif_col.insert_one({
-                    'notification_id': f"ntf_{uuid.uuid4().hex[:10]}",
-                    'user_id': mid,
-                    'type': 'request_submitted',
-                    'title': f"New {payload.type} request from {user.get('name')}",
-                    'body': payload.title,
-                    'link': f"/approvals",
-                    'read': False,
-                    'created_at': now,
-                })
-    # Notify admins too
+                notified.add(mid)
     async for admin_user in users_col.find({'role': {'$in': ['admin', 'owner']}}, {'_id': 0, 'user_id': 1}):
+        if admin_user['user_id'] != user['user_id']:
+            notified.add(admin_user['user_id'])
+    for uid in notified:
         await notif_col.insert_one({
             'notification_id': f"ntf_{uuid.uuid4().hex[:10]}",
-            'user_id': admin_user['user_id'],
+            'user_id': uid,
             'type': 'request_submitted',
             'title': f"New {payload.type} request from {user.get('name')}",
             'body': payload.title,
-            'link': f"/approvals",
+            'link': '/approvals',
             'read': False,
             'created_at': now,
         })
+    await audit_record(user, 'create', 'request', doc['request_id'], payload.title, {'type': payload.type})
     return doc
 
 
 @router.post('/{request_id}/action')
-async def act_on_request(request_id: str, payload: ApprovalAction, user=Depends(require_roles('owner', 'admin', 'manager'))):
+async def act_on_request(request_id: str, payload: ApprovalAction, user=Depends(require_permission('requests.approve'))):
     doc = await requests_col.find_one({'request_id': request_id}, {'_id': 0})
     if not doc:
         raise HTTPException(404, 'Request not found')
     if user['role'] == 'manager':
-        # Manager can act only for their team members
         user_team_ids = set(user.get('team_ids', []))
         author_team_ids = set(doc.get('author_team_ids', []))
         if not (user_team_ids & author_team_ids):
@@ -117,7 +111,6 @@ async def act_on_request(request_id: str, payload: ApprovalAction, user=Depends(
             'updated_at': now,
         }},
     )
-    # Notify author
     await notif_col.insert_one({
         'notification_id': f"ntf_{uuid.uuid4().hex[:10]}",
         'user_id': doc['author_id'],
@@ -128,4 +121,5 @@ async def act_on_request(request_id: str, payload: ApprovalAction, user=Depends(
         'read': False,
         'created_at': now,
     })
+    await audit_record(user, payload.action, 'request', request_id, doc.get('title'), {'note': payload.note})
     return await requests_col.find_one({'request_id': request_id}, {'_id': 0})

@@ -1,4 +1,4 @@
-"""Shared Pydantic models."""
+"""Shared Pydantic models (v2 — extended with territories, geo, due_at)."""
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Literal, Any, Dict
 from datetime import datetime, timezone
@@ -23,6 +23,13 @@ class LoginReq(BaseModel):
 
 class OAuthReq(BaseModel):
     session_id: str
+
+
+class GeoPoint(BaseModel):
+    lat: float
+    lng: float
+    accuracy_m: Optional[float] = None
+    captured_at: Optional[str] = None
 
 
 class UserOut(BaseModel):
@@ -67,6 +74,7 @@ class TeamIn(BaseModel):
     description: Optional[str] = None
     manager_id: Optional[str] = None
     member_ids: List[str] = []
+    territory_ids: List[str] = []
 
 
 class TeamMembersReq(BaseModel):
@@ -83,6 +91,19 @@ class ProductIn(BaseModel):
     description: Optional[str] = None
 
 
+class TerritoryIn(BaseModel):
+    name: str
+    code: Optional[str] = None
+    region: Optional[str] = None  # e.g. 'North', 'West'
+    state: Optional[str] = None
+    districts: List[str] = []
+    description: Optional[str] = None
+    center: Optional[GeoPoint] = None
+    team_id: Optional[str] = None
+    manager_id: Optional[str] = None
+    rep_ids: List[str] = []
+
+
 class DealerIn(BaseModel):
     firm_name: str
     contact_name: str
@@ -97,13 +118,15 @@ class DealerIn(BaseModel):
     status: Literal['active', 'inactive', 'prospect'] = 'active'
     assigned_rep_id: Optional[str] = None
     team_id: Optional[str] = None
+    territory_id: Optional[str] = None
+    location: Optional[GeoPoint] = None
     create_login: bool = False
 
 
 class Attachment(BaseModel):
     filename: str
     mime: str
-    data_base64: str  # full data: URL OR raw base64
+    data_base64: str
     size: Optional[int] = None
 
 
@@ -126,11 +149,14 @@ class ReportIn(BaseModel):
     farmer_name: Optional[str] = None
     crop: Optional[str] = None
     acreage: Optional[float] = None
-    location: Optional[str] = None
+    location: Optional[str] = None  # free-text
+    geo: Optional[GeoPoint] = None
+    territory_id: Optional[str] = None
     area: Optional[str] = None
-    items: List[Dict[str, Any]] = []  # e.g., product requirements [{product_id, quantity, unit}]
+    items: List[Dict[str, Any]] = []
     amount: Optional[float] = None
     next_action: Optional[str] = None
+    due_at: Optional[str] = None  # ISO date/datetime for SLA
     notes: Optional[str] = None
     attachments: List[Attachment] = []
 
@@ -167,3 +193,8 @@ class MessageIn(BaseModel):
     thread_id: str
     text: Optional[str] = None
     attachments: List[Attachment] = []
+
+
+class ReportStatusUpdate(BaseModel):
+    resolved: bool = True
+    note: Optional[str] = None
