@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Phase 1: Get Emergent Managed Google Auth integration playbook",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 1: Build minimal auth POC (email/password + Google OAuth + RBAC + seed users)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1: Test POC end-to-end (both auth methods + role-based routing)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Get design guidelines from design_agent",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Build complete backend (models, CRUD, reports, requests, messaging, teams, products, dashboards)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Build complete frontend (all dashboards, forms, messaging UI, approvals UI, analytics)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: All user stories covered in Development",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: End to End Testing using Testing Agent",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Fix all issues from testing agent",
+    "status": "pending"
+  }
+]
