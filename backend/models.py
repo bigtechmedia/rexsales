@@ -1,4 +1,4 @@
-"""Shared Pydantic models (v2 — extended with territories, geo, due_at)."""
+"""Shared Pydantic models."""
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional, Literal, Any, Dict
 from datetime import datetime, timezone
@@ -94,11 +94,12 @@ class ProductIn(BaseModel):
 class TerritoryIn(BaseModel):
     name: str
     code: Optional[str] = None
-    region: Optional[str] = None  # e.g. 'North', 'West'
+    region: Optional[str] = None
     state: Optional[str] = None
     districts: List[str] = []
     description: Optional[str] = None
     center: Optional[GeoPoint] = None
+    radius_km: Optional[float] = None
     team_id: Optional[str] = None
     manager_id: Optional[str] = None
     rep_ids: List[str] = []
@@ -131,13 +132,8 @@ class Attachment(BaseModel):
 
 
 ReportType = Literal[
-    'sales_requirement',
-    'sales_enquiry',
-    'product_enquiry',
-    'field_report',
-    'farm_visit',
-    'dealer_visit',
-    'area_status',
+    'sales_requirement', 'sales_enquiry', 'product_enquiry',
+    'field_report', 'farm_visit', 'dealer_visit', 'area_status',
 ]
 
 
@@ -149,14 +145,14 @@ class ReportIn(BaseModel):
     farmer_name: Optional[str] = None
     crop: Optional[str] = None
     acreage: Optional[float] = None
-    location: Optional[str] = None  # free-text
+    location: Optional[str] = None
     geo: Optional[GeoPoint] = None
     territory_id: Optional[str] = None
     area: Optional[str] = None
     items: List[Dict[str, Any]] = []
     amount: Optional[float] = None
     next_action: Optional[str] = None
-    due_at: Optional[str] = None  # ISO date/datetime for SLA
+    due_at: Optional[str] = None
     notes: Optional[str] = None
     attachments: List[Attachment] = []
 

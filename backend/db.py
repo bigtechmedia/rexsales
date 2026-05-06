@@ -11,7 +11,6 @@ mongo_url = os.environ['MONGO_URL']
 _client = AsyncIOMotorClient(mongo_url)
 db = _client[os.environ['DB_NAME']]
 
-# Collections
 users = db.users
 user_sessions = db.user_sessions
 teams = db.teams
@@ -24,6 +23,7 @@ messages = db.messages
 notifications = db.notifications
 territories = db.territories
 audit_log = db.audit_log
+permission_overrides = db.permission_overrides
 
 
 async def ensure_indexes():
@@ -33,6 +33,7 @@ async def ensure_indexes():
     await user_sessions.create_index('expires_at')
     await teams.create_index('team_id', unique=True)
     await dealers.create_index('dealer_id', unique=True)
+    await dealers.create_index('territory_id')
     await products.create_index('product_id', unique=True)
     await reports.create_index('report_id', unique=True)
     await reports.create_index([('type', 1), ('created_at', -1)])
@@ -40,6 +41,7 @@ async def ensure_indexes():
     await reports.create_index('dealer_id')
     await reports.create_index('due_at')
     await reports.create_index('territory_id')
+    await reports.create_index('escalation_level')
     await requests_col.create_index('request_id', unique=True)
     await requests_col.create_index([('status', 1), ('created_at', -1)])
     await threads.create_index('thread_id', unique=True)
@@ -50,6 +52,7 @@ async def ensure_indexes():
     await audit_log.create_index([('created_at', -1)])
     await audit_log.create_index('actor_id')
     await audit_log.create_index('entity_type')
+    await permission_overrides.create_index('scope', unique=True)
 
 
 def get_client():

@@ -61,6 +61,7 @@ async def seed_if_empty():
             'districts': ['Pune', 'Pimpri-Chinchwad'],
             'description': 'Grapes, sugarcane & pomegranate belt',
             'center': {'lat': 18.5204, 'lng': 73.8567, 'accuracy_m': None, 'captured_at': None},
+            'radius_km': 50,
             'rep_ids': [created_ids['rep@rexbotanix.com']],
         },
         {

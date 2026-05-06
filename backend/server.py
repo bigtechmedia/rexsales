@@ -29,6 +29,8 @@ from routes.territory_routes import router as territory_router  # noqa: E402
 from routes.audit_routes import router as audit_router  # noqa: E402
 from routes.export_routes import router as export_router  # noqa: E402
 from routes.sla_routes import router as sla_router, resolve_router, sla_background_loop  # noqa: E402
+from routes.map_routes import router as map_router  # noqa: E402
+from routes.permission_routes import router as permission_router  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,14 +38,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title='Rex Botanix CRM', version='1.1.0')
+app = FastAPI(title='Rex Botanix CRM', version='1.2.0')
 
 api_router = APIRouter(prefix='/api')
 
 
 @api_router.get('/')
 async def root():
-    return {'app': 'Rex Botanix CRM', 'status': 'ok', 'version': '1.1.0'}
+    return {'app': 'Rex Botanix CRM', 'status': 'ok', 'version': '1.2.0'}
 
 
 @api_router.get('/health')
@@ -57,7 +59,7 @@ api_router.include_router(team_router)
 api_router.include_router(product_router)
 api_router.include_router(dealer_router)
 api_router.include_router(report_router)
-api_router.include_router(resolve_router)  # /reports/{id}/resolve
+api_router.include_router(resolve_router)
 api_router.include_router(request_router)
 api_router.include_router(messaging_router)
 api_router.include_router(notification_router)
@@ -66,6 +68,8 @@ api_router.include_router(territory_router)
 api_router.include_router(audit_router)
 api_router.include_router(export_router)
 api_router.include_router(sla_router)
+api_router.include_router(map_router)
+api_router.include_router(permission_router)
 
 app.include_router(api_router)
 
@@ -91,7 +95,6 @@ async def _startup():
         await seed_if_empty()
     except Exception as e:
         logger.error('seed_if_empty failed: %s', e)
-    # Kick off SLA sweep loop (every 15 min)
     global _sla_task
     try:
         _sla_task = asyncio.create_task(sla_background_loop(900))
